@@ -1,0 +1,130 @@
+{
+  "name": "@isikk/core",
+  "version": "0.1.0",
+  "description": "Everyday TypeScript utilities.",
+  "license": "MIT",
+  "author": {
+    "name": "Işık Kaplan",
+    "email": "isik.kaplan@outlook.com"
+  },
+  "homepage": "https://github.com/isik-kaplan/isik-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/isik-kaplan/isik-ts"
+  },
+  "keywords": [
+    "utility",
+    "typescript"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./hooks": {
+      "types": "./dist/hooks/index.d.ts",
+      "import": "./dist/hooks/index.js",
+      "require": "./dist/hooks/index.cjs"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js",
+      "require": "./dist/node/index.cjs"
+    },
+    "./next/middleware": {
+      "types": "./dist/next/middleware/index.d.ts",
+      "import": "./dist/next/middleware/index.js",
+      "require": "./dist/next/middleware/index.cjs"
+    },
+    "./next/cookies": {
+      "types": "./dist/next/cookies/index.d.ts",
+      "import": "./dist/next/cookies/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts && tsup --config tsup.next-cookies.config.ts",
+    "dev": "tsup --config tsup.config.ts --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint:eslint": "eslint .",
+    "lint:types": "tsc --noEmit",
+    "lint:prettier": "prettier --check .",
+    "lint": "npm run lint:eslint && npm run lint:types && npm run lint:prettier",
+    "fix": "eslint . --fix && prettier --write .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,jsx,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "date-fns": "^3.6.0"
+  },
+  "overrides": {
+    "eslint-config-standard": {
+      "eslint": "$eslint",
+      "eslint-plugin-n": "$eslint-plugin-n",
+      "eslint-plugin-promise": "$eslint-plugin-promise"
+    }
+  },
+  "peerDependencies": {
+    "next": ">=14",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@eslint/js": "^9.9.1",
+    "@fast-check/vitest": "^0.4.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@trivago/prettier-plugin-sort-imports": "^4.3.0",
+    "@types/node": "^20.17.9",
+    "@types/react": "^19.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.9.1",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-n": "^17.24.0",
+    "eslint-plugin-prettier": "^5.5.6",
+    "eslint-plugin-promise": "^7.3.0",
+    "eslint-plugin-react": "^7.37.5",
+    "fast-check": "^4.9.0",
+    "husky": "^9.1.7",
+    "jsdom": "^26.0.0",
+    "lint-staged": "^16.4.0",
+    "next": "^16.2.12",
+    "prettier": "^3.3.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.3.0",
+    "vitest": "^4.1.10"
+  }
+}

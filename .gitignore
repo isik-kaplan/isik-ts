@@ -1,0 +1,17 @@
+# Node
+node_modules
+npm-debug.log*
+
+# Build output
+dist
+*.tsbuildinfo
+
+# Tests
+coverage
+
+# IDEs & Editors
+.idea
+.DS_Store
+
+# Project Specific
+TODO.md
