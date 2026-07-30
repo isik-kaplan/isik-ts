@@ -17,6 +17,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [files.md](files.md) - browser file/image helpers (MIME guessing, canvas re-encoding, base64)
 - [cookies.md](cookies.md) - `getCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
+- [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHslTriplet`
 
 ## React (`@isikk/core/hooks`)
 
