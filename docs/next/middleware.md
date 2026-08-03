@@ -30,3 +30,30 @@ const proxy = runProxyIfPathMatches(/.*/, [...DEFAULT_EXEMPT_PATTERNS, /^\/healt
 ```
 
 - Each static-asset pattern is fully anchored (`^\/favicon\.ico$`, not just `/favicon\.ico/`) - it matches only the exact root-level path, not any pathname that happens to contain that filename as a substring. This matters for an exempt list feeding into auth-gating middleware: an unanchored `/favicon\.ico/` would also match `/admin/blog/my-favicon.ico-post`, exempting it from whatever check `handler` was supposed to run.
+
+### Prefer `config.matcher` when the exemption is static
+
+`runProxyIfPathMatches`'s check runs at request time, inside the proxy function itself. If your exemption can be expressed as a fixed pattern known ahead of time, Next's own `config.matcher` (a static array exported alongside `proxy`/`middleware`) does the same job at the routing layer, before the proxy function is invoked at all - strictly cheaper:
+
+```typescript
+// proxy.ts
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)'],
+}
+```
+
+Reach for `runProxyIfPathMatches` instead when the exemption needs to be more dynamic than a static matcher can express - e.g. computed from request state, composed from `DEFAULT_EXEMPT_PATTERNS` at runtime, or shared as a reusable wrapper across multiple proxies with different patterns.
+
+## stripEmptyQueryParams
+
+Redirects to a copy of the request's URL with every empty-string query param removed (`?tag=&sort=name` becomes `?sort=name`), or returns `undefined` if there's nothing to strip - handy as a "query hygiene" step early in a proxy chain.
+
+```typescript
+import { stripEmptyQueryParams } from '@isikk/core/next/middleware'
+
+export function proxy(request: NextRequest) {
+  return stripEmptyQueryParams(request) ?? NextResponse.next()
+}
+```
+
+Preserves repeated keys (`?tag=a&tag=b` stays `?tag=a&tag=b`) - it rebuilds the query string directly from `URLSearchParams` entries rather than round-tripping through a plain object (`Object.fromEntries(searchParams.entries())`), which would silently collapse repeats down to the last value.

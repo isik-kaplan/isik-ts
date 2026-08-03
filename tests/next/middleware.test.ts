@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { describe, expect, it, vi } from 'vitest'
 
-import { runMiddlewareIfPathMatches, runProxyIfPathMatches } from '../../src/next/middleware'
+import { runMiddlewareIfPathMatches, runProxyIfPathMatches, stripEmptyQueryParams } from '../../src/next/middleware'
 
 describe('runProxyIfPathMatches', () => {
   it('runs the handler when the pathname matches', async () => {
@@ -69,5 +69,31 @@ describe('runProxyIfPathMatches', () => {
 describe('runMiddlewareIfPathMatches', () => {
   it('is the same function as runProxyIfPathMatches, kept as a naming-compatibility alias', () => {
     expect(runMiddlewareIfPathMatches).toBe(runProxyIfPathMatches)
+  })
+})
+
+describe('stripEmptyQueryParams', () => {
+  it('returns undefined when there are no empty-string query params', () => {
+    const request = new NextRequest('https://example.com/posts?sort=name&tag=a')
+    expect(stripEmptyQueryParams(request)).toBeUndefined()
+  })
+
+  it('returns undefined for a request with no query params at all', () => {
+    const request = new NextRequest('https://example.com/posts')
+    expect(stripEmptyQueryParams(request)).toBeUndefined()
+  })
+
+  it('redirects to a URL with empty-string query params removed', () => {
+    const request = new NextRequest('https://example.com/posts?sort=name&tag=')
+    const response = stripEmptyQueryParams(request)
+
+    expect(response?.headers.get('location')).toBe('https://example.com/posts?sort=name')
+  })
+
+  it('preserves repeated non-empty keys instead of collapsing them to the last value', () => {
+    const request = new NextRequest('https://example.com/posts?tag=a&tag=b&empty=')
+    const response = stripEmptyQueryParams(request)
+
+    expect(response?.headers.get('location')).toBe('https://example.com/posts?tag=a&tag=b')
   })
 })

@@ -15,7 +15,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [strings.md](strings.md) - `slugify`
 - [dates.md](dates.md) - `formattedDate` and friends, built on `date-fns`
 - [files.md](files.md) - browser file/image helpers (MIME guessing, canvas re-encoding, base64)
-- [cookies.md](cookies.md) - `getCookie` (browser, via `document.cookie`)
+- [cookies.md](cookies.md) - `getCookie`, `setCookie`, `removeCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
 - [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHslTriplet`
 
@@ -31,8 +31,9 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 ## Next.js (`@isikk/core/next/*`)
 
-- [next/](next/README.md) - `runProxyIfPathMatches` and the `setCookie`/`getCookie`/`removeCookie`
-  Server Actions (peer dep: `next`)
+- [next/](next/README.md) - `runProxyIfPathMatches`, `stripEmptyQueryParams`, the `setCookie`/
+  `getCookie`/`removeCookie` Server Actions, `getSafeRedirect`, `getRequestOrigin`,
+  `createSessionGuards` (peer dep: `next`, `react` for `createSessionGuards`)
 
 ## Everything else
 
