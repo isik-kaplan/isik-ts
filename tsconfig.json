@@ -14,6 +14,6 @@
     "declaration": true,
     "declarationMap": true
   },
-  "include": ["src", "tests"],
+  "include": ["src", "tests", "tests-integration"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,3 +1,8 @@
 dist
 coverage
 node_modules
+.next
+fixtures/.pack
+
+# Fixture app: Next rewrites tsconfig.json and generates next-env.d.ts on every build
+fixtures

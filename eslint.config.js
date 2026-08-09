@@ -11,7 +11,7 @@ const compat = new FlatCompat({
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'coverage', 'node_modules'],
+    ignores: ['dist', 'coverage', 'node_modules', 'fixtures'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

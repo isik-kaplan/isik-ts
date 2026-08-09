@@ -9,6 +9,12 @@ dist
 # Tests
 coverage
 
+# Integration fixture: built output and the packed tarball installed into it
+fixtures/**/node_modules
+fixtures/**/.next
+fixtures/.pack
+fixtures/**/next-env.d.ts
+
 # IDEs & Editors
 .idea
 .DS_Store
