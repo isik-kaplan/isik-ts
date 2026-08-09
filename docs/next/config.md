@@ -6,8 +6,8 @@ Browser-visible configuration read from the environment **at request time** inst
 
 ```typescript
 // app/config.ts
-import { publicConfig } from '@isikk/core/next/config'
-import { boolean, commaSeparatedList, config, string } from '@isikk/core/node'
+import { boolean, commaSeparatedList, publicConfig, string } from '@isikk/core/next/config'
+import { config } from '@isikk/core/node'
 
 // Server-only. Never serialized anywhere.
 export const SERVER = config({
@@ -28,6 +28,8 @@ export const { CONFIG, PublicConfigScript } = publicConfig(
   { globalKey: '__MY_APP_CONFIG__', prefix: 'PUBLIC' }
 )
 ```
+
+Note where the casters come from. `next/config` re-exports every caster, and a shared config module has to import them from there rather than from `@isikk/core/node`: that entry point's barrel also carries `contextLocal` (`async_hooks`) and `getFileAsString` (`fs`), and this module is imported by client components and edge routes by design - so pulling casters from `/node` drags Node builtins into bundles that have none and the build fails outright. `config()` itself is server-only and stays where it is.
 
 The schema is the same nested-caster schema [`config()`](../node.md#config) takes, with the same `prefix`/`sep` naming and the same `missingDefault`/`errorDefault` rules:
 
@@ -140,12 +142,23 @@ Conditions match in declaration order, which is why `browser` sits below the ser
 
 **Nothing resolves until something reads it.** `publicConfig()` returns a lazy view, so calling it costs nothing. That matters twice over. On the server, `next build` evaluates modules while collecting page data, and eager resolution there is what forces CI to populate an environment just to compile - with the deferral, a missing variable no longer fails the build, and "can this build" stops depending on "is this configured". In the browser, the injected global is read at access time rather than at chunk-evaluation time, so an `async` chunk that happens to execute before the inline script still sees the config.
 
-**`connection()` forces a per-request read.** Without it a statically prerendered route would freeze the values into the build output, which is the problem this module exists to solve. `PublicConfigScript` awaits it before serializing anything. (Not `unstable_noStore`, which `connection()` replaces.)
+**`connection()` forces a per-request read of the payload.** Without it a statically prerendered route would freeze the injected values into the build output, which is the problem this module exists to solve. `PublicConfigScript` awaits it before serializing anything. (Not `unstable_noStore`, which `connection()` replaces.)
+
+It covers the payload, and only the payload. A **sibling component's `CONFIG` read is not covered** - property access is synchronous, so it executes during the prerender pass no matter what the layout awaits. Verified against a real build in `tests-integration/`: with a page reading `CONFIG` and no `dynamic` export, `next build` resolves the config at build time and fails on the first missing variable. Which means any route that reads config in a server component has to say it is dynamic:
+
+```typescript
+// app/page.tsx
+export const dynamic = 'force-dynamic'
+```
+
+That is not really a workaround. A route whose HTML depends on the environment the server was started with is dynamic by definition - Next cannot prerender it and be correct. The `dynamic` export is how you tell Next what is already true.
 
 **The payload is escaped.** Values travel as a JSON string parsed at runtime, with `<` escaped to `\u003c` and U+2028/U+2029 escaped to `\u2028`/`\u2029`. `JSON.stringify` alone is not enough for a `<script>` body: a value containing `</script>` closes the tag early and drops the rest of the payload into the document as markup, and U+2028/U+2029 are literal line terminators in JavaScript, so a value containing one is a syntax error. The injected object is deep-frozen and defined non-writable, so nothing can reshape config after hydration.
 
 ## Constraints worth knowing before you adopt it
 
+- **Any route reading `CONFIG` in a server component needs `export const dynamic = 'force-dynamic'`**, per the section above. Without it that route prerenders and bakes build-time values in - or fails the build outright if the variables are unset.
+- **Casters must be imported from `next/config`**, not `@isikk/core/node`, in any module a client component or edge route imports. See the note under the first example.
 - **Cache Components** requires `connection()` to sit inside a `<Suspense>` boundary, hence the wrapper in the layout example. Without Cache Components the boundary is harmless, so it is simplest to always include it.
 - **`output: 'export'`** is incompatible - a fully static export has no request to read from. Use `NEXT_PUBLIC_*` there.
 - **Next 15+**, because of `connection()`. The package's other `next/*` entry points still support `>=14`.

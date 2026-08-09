@@ -2,6 +2,14 @@ import type { ConfigSchema, InferConfig } from '../../node/configCore'
 import { ConfigError } from '../../node/configError'
 import { type PublicConfig, type PublicConfigOptions, lazyConfigProxy, memoize, requireGlobalKey } from './shared'
 
+// Mirrors the server half's re-export, so the shared schema call site resolves the same caster
+// names in the browser bundle. Pure functions, no environment access - see index.tsx for why they
+// cannot be imported from `@isikk/core/node` here.
+export * from '../../node/casters'
+export { ConfigError } from '../../node/configError'
+export type { ConfigSchema, InferConfig } from '../../node/configCore'
+export type { PublicConfig, PublicConfigOptions, PublicConfigScriptComponent, PublicConfigScriptProps } from './shared'
+
 /**
  * The browser half of `publicConfig()`, substituted for the server module by the `browser`
  * export condition in package.json rather than branched to at runtime. That substitution is what

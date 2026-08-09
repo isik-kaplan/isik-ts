@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-09
+
+### Fixed
+
+- `@isikk/core/next/config` now re-exports every caster (`string`, `integer`, `float`,
+  `boolean`, the `commaSeparated*` variants and the `caster` factory). Without this the documented
+  usage pattern **could not build**: a schema has to be written at a call site shared with client
+  components and edge routes, but importing casters from `@isikk/core/node` pulls in that
+  barrel's `contextLocal` (`async_hooks`) and `getFileAsString` (`fs`), which have no resolution in
+  those bundles. Caught by the new integration suite on its very first `next build`. The casters
+  themselves are pure `(value: string) => T` factories and add no environment access to the browser
+  build.
+- Documented that `connection()` inside `PublicConfigScript` makes the _payload_ dynamic but does
+  not cover a sibling component's synchronous `CONFIG` read, which still executes during the
+  prerender pass. A route reading config in a server component needs
+  `export const dynamic = 'force-dynamic'`; a route whose HTML depends on the server's environment
+  is dynamic by definition. The 0.3.0 docs implied `PublicConfigScript` handled this for the whole
+  route.
+
 ## [0.5.0] - 2026-08-09
 
 ### Changed

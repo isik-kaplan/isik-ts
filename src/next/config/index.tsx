@@ -17,6 +17,12 @@ import {
   serializePublicConfigScript,
 } from './shared'
 
+// Re-exported so a schema can be written without importing `@isikk/core/node`. That entry
+// point's barrel also carries `contextLocal` (async_hooks) and `getFileAsString` (fs), and the
+// schema call site is shared with client components and edge routes by design - so importing
+// casters from there drags Node builtins into bundles that have none, and the build fails. The
+// casters themselves are pure `(value: string) => T` factories, safe in any runtime.
+export * from '../../node/casters'
 export { ConfigError } from '../../node/configError'
 export type { ConfigSchema, InferConfig } from '../../node/configCore'
 export type { PublicConfig, PublicConfigOptions, PublicConfigScriptComponent, PublicConfigScriptProps } from './shared'
