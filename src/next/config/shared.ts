@@ -4,16 +4,17 @@ import type { ConfigSchema, InferConfig } from '../../node/configCore'
 import { ConfigError } from '../../node/configError'
 
 export interface PublicConfigOptions {
+  /**
+   * The property the payload is injected under on `window`. Required, with no default and no
+   * derived fallback: the name belongs in your application's namespace, not this package's, and
+   * naming it at the call site is what stops two configs from silently landing on a name neither
+   * of them chose.
+   */
+  globalKey: string
   /** Prepended to every environment variable name this call reads, joined with `sep`. */
   prefix?: string
   /** Joins the prefix and the nested key path into a variable name. Defaults to `"__"`. */
   sep?: string
-  /**
-   * The property the payload is injected under on `window`. Defaults to a name derived from
-   * `prefix`. Set it to run two public configs off one prefix, to keep two copies of the package
-   * in one page from reading each other's payload, or just to own the name yourself.
-   */
-  globalKey?: string
 }
 
 export interface PublicConfigScriptProps {
@@ -28,34 +29,36 @@ export interface PublicConfig<S extends ConfigSchema> {
   PublicConfigScript: PublicConfigScriptComponent
 }
 
-export const GLOBAL_KEY_BASE = '__ISIK_PUBLIC_CONFIG__'
-
 /**
- * Decides the property the payload is injected under, from an explicit `globalKey` or else from
- * `prefix` - which namespaces the default, so two `publicConfig()` calls on different prefixes
- * land on different properties instead of the second one silently declining to overwrite the
- * first.
+ * Validates the caller-supplied global key. There is deliberately no default and nothing derived
+ * from `prefix` to fall back to: a package-chosen name would put this package's identity into
+ * every consuming app's `window`, and - worse - two `publicConfig()` calls could quietly agree on
+ * a name neither of them wrote down. Since the payload is injected non-writable, that agreement
+ * loses the second config silently in the browser while both still resolve on the server. Making
+ * the name mandatory turns that from an invisible default into a line you can read at the call
+ * site.
  *
- * Both halves of the module resolve the key through this one function, from the same options
- * object: the schema and options live at a single call site in the consuming app, and only the
- * library import flips between builds. That is what makes the two sides agree by construction -
- * a server that wrote one key and a browser that read another would fail with nothing to point
- * at.
+ * Both halves of the module go through this one function, from the same options object: the
+ * schema and options live at a single call site in the consuming app, and only the library import
+ * flips between builds. That is what makes the two sides agree by construction - a server that
+ * wrote one key and a browser that read another would fail with nothing to point at.
  *
- * No character restrictions: the key is emitted as an escaped string literal and read back with
- * bracket notation, so anything goes. An empty string is rejected only because it is far more
- * likely to be an accident than an intent.
+ * No character restrictions, since the key is emitted as an escaped string literal and read back
+ * with bracket notation. The runtime check covers callers without types, for whom a missing key
+ * would otherwise mean reading `window[undefined]`.
  */
-export function resolveGlobalKey(options: PublicConfigOptions): string {
-  if (options.globalKey !== undefined) {
-    if (options.globalKey === '') {
-      throw new ConfigError('publicConfig: globalKey cannot be an empty string. Omit it to derive one from prefix.')
-    }
-    return options.globalKey
+export function requireGlobalKey(options: PublicConfigOptions): string {
+  const { globalKey } = options
+
+  if (typeof globalKey !== 'string' || globalKey === '') {
+    throw new ConfigError(
+      'publicConfig: globalKey is required and must be a non-empty string - it names the window ' +
+        'property the config is injected under, e.g. { globalKey: "__MY_APP_CONFIG__" }. There is no ' +
+        'default, so the name is yours and two configs cannot collide on one neither of them chose.'
+    )
   }
 
-  const prefix = options.prefix ?? ''
-  return prefix === '' ? GLOBAL_KEY_BASE : `${GLOBAL_KEY_BASE}${prefix}__`
+  return globalKey
 }
 
 /**

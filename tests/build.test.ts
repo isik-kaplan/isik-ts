@@ -41,6 +41,24 @@ describe('next/config build output', () => {
     expect(browser).not.toContain('buildConfig')
   })
 
+  it('puts no name of its own into the browser build at all', () => {
+    // globalKey is required precisely so this package never picks a property name on someone
+    // else's window. The browser half is where such a name would land, and it carries none.
+    expect(read('next/config/browser.js')).not.toMatch(/isik/i)
+  })
+
+  it('has no default global property name to fall back to on either side', () => {
+    for (const entry of ['next/config/index.js', 'next/config/browser.js']) {
+      expect(read(entry)).not.toMatch(/PUBLIC_CONFIG__/)
+    }
+
+    // The server half does carry one package-scoped name: the Symbol key for the config namespace
+    // registry. That is a server-side bookkeeping symbol, not a property on an app's window, and
+    // it is deliberately namespaced to the package so two copies share one registry.
+    expect(read('next/config/index.js')).toContain('Symbol.for("@isikk/core/config-namespace-registry")')
+    expect(read('next/config/browser.js')).not.toContain('config-namespace-registry')
+  })
+
   it('starts the client entry with its directive, ahead of anything esbuild adds', () => {
     expect(read('next/config/insert.js').split('\n')[0]).toBe('"use client";')
   })

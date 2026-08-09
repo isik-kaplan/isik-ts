@@ -9,15 +9,22 @@ import { publicConfig as browserPublicConfig } from '../../src/next/config/brows
 import { publicConfig } from '../../src/next/config/index'
 import { PublicConfigInsert } from '../../src/next/config/insert'
 import {
+  type PublicConfigOptions,
   jsStringLiteral,
   lazyConfigProxy,
   memoize,
-  resolveGlobalKey,
+  requireGlobalKey,
   serializePublicConfigScript,
 } from '../../src/next/config/shared'
 import { boolean, commaSeparatedList, integer, string } from '../../src/node/casters'
 import { ConfigError } from '../../src/node/configError'
 import { claimConfigNamespace, resetConfigNamespaces } from '../../src/node/configRegistry'
+
+/**
+ * The global key every test that doesn't care about the key itself uses. Named after a consuming
+ * app rather than this package, because the package no longer supplies a name of its own.
+ */
+const KEY = '__APP_CONFIG__'
 
 const connection = vi.fn(async () => undefined)
 const insertedCallbacks: Array<() => ReactNode> = []
@@ -50,7 +57,7 @@ beforeEach(() => {
   // Reflect.ownKeys, not Object.keys: the injected property is defined non-enumerable in some of
   // these tests, and a leftover would make the "nothing was injected" case silently pass.
   for (const key of Reflect.ownKeys(globalThis)) {
-    if (typeof key === 'string' && key.startsWith('__ISIK_')) {
+    if (typeof key === 'string' && key.startsWith('__APP_')) {
       Reflect.deleteProperty(globalThis, key)
     }
   }
@@ -62,10 +69,13 @@ describe('publicConfig (server)', () => {
     vi.stubEnv('FEATURES__NEW_CHECKOUT', 'true')
     vi.stubEnv('FEATURES__LOCALES', 'en,tr,de')
 
-    const { CONFIG } = publicConfig({
-      API_URL: string(),
-      FEATURES: { NEW_CHECKOUT: boolean(), LOCALES: commaSeparatedList() },
-    })
+    const { CONFIG } = publicConfig(
+      {
+        API_URL: string(),
+        FEATURES: { NEW_CHECKOUT: boolean(), LOCALES: commaSeparatedList() },
+      },
+      { globalKey: KEY }
+    )
 
     expect({ ...CONFIG }).toEqual({
       API_URL: 'https://api.example.com',
@@ -76,7 +86,7 @@ describe('publicConfig (server)', () => {
   it('prefixes every variable name when a prefix is given', () => {
     vi.stubEnv('PUBLIC__API_URL', 'https://prefixed.example.com')
 
-    const { CONFIG } = publicConfig({ API_URL: string() }, { prefix: 'PUBLIC' })
+    const { CONFIG } = publicConfig({ API_URL: string() }, { globalKey: KEY, prefix: 'PUBLIC' })
 
     expect(CONFIG.API_URL).toBe('https://prefixed.example.com')
   })
@@ -84,7 +94,7 @@ describe('publicConfig (server)', () => {
   it('joins with a custom separator', () => {
     vi.stubEnv('FEATURES.NEW_CHECKOUT', 'true')
 
-    const { CONFIG } = publicConfig({ FEATURES: { NEW_CHECKOUT: boolean() } }, { sep: '.' })
+    const { CONFIG } = publicConfig({ FEATURES: { NEW_CHECKOUT: boolean() } }, { globalKey: KEY, sep: '.' })
 
     expect(CONFIG.FEATURES.NEW_CHECKOUT).toBe(true)
   })
@@ -92,7 +102,7 @@ describe('publicConfig (server)', () => {
   it('honours missingDefault, so an unset variable is not automatically fatal', () => {
     vi.stubEnv('SENTRY_DSN', undefined)
 
-    const { CONFIG } = publicConfig({ SENTRY_DSN: string({ missingDefault: '' }) })
+    const { CONFIG } = publicConfig({ SENTRY_DSN: string({ missingDefault: '' }) }, { globalKey: KEY })
 
     expect(CONFIG.SENTRY_DSN).toBe('')
   })
@@ -102,7 +112,7 @@ describe('publicConfig (server)', () => {
 
     // The whole point of the deferral: this call is what `next build` performs while collecting
     // page data, and it must not need the environment to be populated.
-    const { CONFIG } = publicConfig({ REQUIRED: string() })
+    const { CONFIG } = publicConfig({ REQUIRED: string() }, { globalKey: KEY })
 
     expect(() => CONFIG.REQUIRED).toThrow(ConfigError)
   })
@@ -110,7 +120,7 @@ describe('publicConfig (server)', () => {
   it('resolves once and reuses the result', () => {
     vi.stubEnv('COUNTED', 'first')
 
-    const { CONFIG } = publicConfig({ COUNTED: string() })
+    const { CONFIG } = publicConfig({ COUNTED: string() }, { globalKey: KEY })
     expect(CONFIG.COUNTED).toBe('first')
 
     vi.stubEnv('COUNTED', 'second')
@@ -120,38 +130,26 @@ describe('publicConfig (server)', () => {
   it('throws ConfigError when config() already claimed the same namespace', () => {
     claimConfigNamespace({ kind: 'server', prefix: '', sep: '__' })
 
-    expect(() => publicConfig({ API_URL: string() })).toThrow(ConfigError)
+    expect(() => publicConfig({ API_URL: string() }, { globalKey: KEY })).toThrow(ConfigError)
   })
 
-  it('gives each prefix its own global, so two calls do not collide', () => {
-    vi.stubEnv('ONE__A', '1')
-    vi.stubEnv('TWO__B', '2')
-
-    const first = publicConfig({ A: integer() }, { prefix: 'ONE' })
-    const second = publicConfig({ B: integer() }, { prefix: 'TWO' })
-
-    expect(first.CONFIG.A).toBe(1)
-    expect(second.CONFIG.B).toBe(2)
-    expect(resolveGlobalKey({ prefix: 'ONE' })).not.toBe(resolveGlobalKey({ prefix: 'TWO' }))
-  })
-
-  it('injects under an explicit globalKey when given one', async () => {
+  it('injects under exactly the key it was given, and nothing else', async () => {
     vi.stubEnv('API_URL', 'https://api.example.com')
-    const { PublicConfigScript } = publicConfig({ API_URL: string() }, { globalKey: '__ISIK_TEST_CUSTOM__' })
+    const { PublicConfigScript } = publicConfig({ API_URL: string() }, { globalKey: '__APP_CUSTOM__' })
 
     const element = (await PublicConfigScript({})) as { props: { script: string } }
     const injected = evaluateScript(element.props.script)
 
-    expect(injected.__ISIK_TEST_CUSTOM__).toEqual({ API_URL: 'https://api.example.com' })
-    expect(injected.__ISIK_PUBLIC_CONFIG__).toBeUndefined()
+    expect(Object.keys(injected)).toEqual(['__APP_CUSTOM__'])
+    expect(injected.__APP_CUSTOM__).toEqual({ API_URL: 'https://api.example.com' })
   })
 
-  it('lets two configs share a prefix as long as their global keys differ', async () => {
+  it('lets two configs share a prefix, since the key is named rather than derived from it', async () => {
     vi.stubEnv('SHARED__A', '1')
     vi.stubEnv('SHARED__B', '2')
 
-    const first = publicConfig({ A: integer() }, { prefix: 'SHARED', globalKey: '__ISIK_TEST_FIRST__' })
-    const second = publicConfig({ B: integer() }, { prefix: 'SHARED', globalKey: '__ISIK_TEST_SECOND__' })
+    const first = publicConfig({ A: integer() }, { globalKey: '__APP_FIRST__', prefix: 'SHARED' })
+    const second = publicConfig({ B: integer() }, { globalKey: '__APP_SECOND__', prefix: 'SHARED' })
 
     const window: Record<string, unknown> = {}
     for (const { PublicConfigScript } of [first, second]) {
@@ -160,15 +158,24 @@ describe('publicConfig (server)', () => {
       new Function('window', element.props.script)(window)
     }
 
-    expect(window.__ISIK_TEST_FIRST__).toEqual({ A: 1 })
-    expect(window.__ISIK_TEST_SECOND__).toEqual({ B: 2 })
+    expect(window.__APP_FIRST__).toEqual({ A: 1 })
+    expect(window.__APP_SECOND__).toEqual({ B: 2 })
+  })
+
+  it('requires a globalKey, before it claims a namespace', () => {
+    const withoutKey = {} as PublicConfigOptions
+
+    expect(() => publicConfig({ A: integer() }, withoutKey)).toThrow(/globalKey is required/)
+    // The failed call must not have claimed the public namespace on its way out, or the next
+    // legitimate config() call would collide with a config that was never built.
+    expect(claimConfigNamespace({ kind: 'server', prefix: '', sep: '__' })).toBeNull()
   })
 })
 
 describe('PublicConfigScript', () => {
   it('forces a runtime read before serializing anything', async () => {
     vi.stubEnv('API_URL', 'https://api.example.com')
-    const { PublicConfigScript } = publicConfig({ API_URL: string() })
+    const { PublicConfigScript } = publicConfig({ API_URL: string() }, { globalKey: KEY })
 
     await PublicConfigScript({})
 
@@ -177,19 +184,19 @@ describe('PublicConfigScript', () => {
 
   it('hands the serialized payload to the client boundary', async () => {
     vi.stubEnv('API_URL', 'https://api.example.com')
-    const { PublicConfigScript } = publicConfig({ API_URL: string() })
+    const { PublicConfigScript } = publicConfig({ API_URL: string() }, { globalKey: KEY })
 
     const element = (await PublicConfigScript({})) as { type: unknown; props: { script: string; nonce?: string } }
 
     expect(element.type).toBe(PublicConfigInsert)
-    expect(evaluateScript(element.props.script).__ISIK_PUBLIC_CONFIG__).toEqual({
+    expect(evaluateScript(element.props.script).__APP_CONFIG__).toEqual({
       API_URL: 'https://api.example.com',
     })
   })
 
   it('forwards a nonce', async () => {
     vi.stubEnv('API_URL', 'https://api.example.com')
-    const { PublicConfigScript } = publicConfig({ API_URL: string() })
+    const { PublicConfigScript } = publicConfig({ API_URL: string() }, { globalKey: KEY })
 
     const element = (await PublicConfigScript({ nonce: 'abc123' })) as { props: { nonce?: string } }
 
@@ -223,55 +230,56 @@ describe('PublicConfigInsert', () => {
 describe('publicConfig (browser)', () => {
   it('reads the injected global instead of the environment', () => {
     vi.stubEnv('API_URL', 'server-only-value')
-    Object.defineProperty(globalThis, '__ISIK_PUBLIC_CONFIG__', {
+    Object.defineProperty(globalThis, '__APP_CONFIG__', {
       value: { API_URL: 'injected-value' },
       configurable: true,
     })
 
-    const { CONFIG } = browserPublicConfig({ API_URL: string() })
+    const { CONFIG } = browserPublicConfig({ API_URL: string() }, { globalKey: KEY })
 
     expect(CONFIG.API_URL).toBe('injected-value')
   })
 
-  it('reads the global namespaced by prefix', () => {
-    Object.defineProperty(globalThis, resolveGlobalKey({ prefix: 'PUBLIC' }), { value: { A: 1 }, configurable: true })
+  it('ignores prefix entirely - the key is named, never derived', () => {
+    Object.defineProperty(globalThis, '__APP_CUSTOM__', { value: { A: 1 }, configurable: true })
 
-    expect(browserPublicConfig({ A: integer() }, { prefix: 'PUBLIC' }).CONFIG.A).toBe(1)
+    expect(browserPublicConfig({ A: integer() }, { globalKey: '__APP_CUSTOM__', prefix: 'PUBLIC' }).CONFIG.A).toBe(1)
   })
 
-  it('reads an explicit globalKey, and names it when it is missing', () => {
-    Object.defineProperty(globalThis, '__ISIK_TEST_CUSTOM__', { value: { A: 1 }, configurable: true })
-
-    expect(browserPublicConfig({ A: integer() }, { globalKey: '__ISIK_TEST_CUSTOM__' }).CONFIG.A).toBe(1)
-    expect(() => browserPublicConfig({ A: integer() }, { globalKey: '__ISIK_TEST_ABSENT__' }).CONFIG.A).toThrow(
-      /window\.__ISIK_TEST_ABSENT__ is not set/
+  it('names the property it looked for when nothing is there', () => {
+    expect(() => browserPublicConfig({ A: integer() }, { globalKey: '__APP_ABSENT__' }).CONFIG.A).toThrow(
+      /window\.__APP_ABSENT__ is not set/
     )
   })
 
+  it('requires a globalKey', () => {
+    expect(() => browserPublicConfig({ A: integer() }, {} as PublicConfigOptions)).toThrow(/globalKey is required/)
+  })
+
   it('defers the global read, then explains itself when nothing was injected', () => {
-    const { CONFIG } = browserPublicConfig({ API_URL: string() })
+    const { CONFIG } = browserPublicConfig({ API_URL: string() }, { globalKey: KEY })
 
     expect(() => CONFIG.API_URL).toThrow(ConfigError)
     expect(() => CONFIG.API_URL).toThrow(/Render <PublicConfigScript \/> once in your root layout/)
   })
 
   it('renders no script - injection already happened on the server', () => {
-    expect(browserPublicConfig({ A: integer() }).PublicConfigScript({})).toBeNull()
+    expect(browserPublicConfig({ A: integer() }, { globalKey: KEY }).PublicConfigScript({})).toBeNull()
   })
 
   it('claims no namespace, so it never conflicts with a server config', () => {
     claimConfigNamespace({ kind: 'server', prefix: '', sep: '__' })
 
-    expect(() => browserPublicConfig({ A: integer() })).not.toThrow()
+    expect(() => browserPublicConfig({ A: integer() }, { globalKey: KEY })).not.toThrow()
   })
 })
 
 describe('serializePublicConfigScript', () => {
   it('defines a non-writable, deeply frozen global', () => {
-    const script = serializePublicConfigScript('__ISIK_PUBLIC_CONFIG__', { A: 1, NESTED: { B: [2] } })
+    const script = serializePublicConfigScript('__APP_CONFIG__', { A: 1, NESTED: { B: [2] } })
 
     const injected = evaluateScript(script)
-    const descriptor = Object.getOwnPropertyDescriptor(injected, '__ISIK_PUBLIC_CONFIG__')!
+    const descriptor = Object.getOwnPropertyDescriptor(injected, '__APP_CONFIG__')!
     const value = descriptor.value as { NESTED: { B: number[] } }
 
     expect(descriptor.writable).toBe(false)
@@ -283,33 +291,33 @@ describe('serializePublicConfigScript', () => {
   })
 
   it('leaves an already-injected global alone rather than throwing on redefinition', () => {
-    const script = serializePublicConfigScript('__ISIK_PUBLIC_CONFIG__', { A: 1 })
+    const script = serializePublicConfigScript('__APP_CONFIG__', { A: 1 })
     const fakeWindow: Record<string, unknown> = {}
 
     /* eslint-disable no-new-func */
     new Function('window', script)(fakeWindow)
     expect(() => new Function('window', script)(fakeWindow)).not.toThrow()
     /* eslint-enable no-new-func */
-    expect(fakeWindow.__ISIK_PUBLIC_CONFIG__).toEqual({ A: 1 })
+    expect(fakeWindow.__APP_CONFIG__).toEqual({ A: 1 })
   })
 
   it('cannot be broken out of by a value containing a closing script tag', () => {
-    const script = serializePublicConfigScript('__ISIK_PUBLIC_CONFIG__', {
+    const script = serializePublicConfigScript('__APP_CONFIG__', {
       EVIL: '</script><script>alert(1)</script>',
     })
 
     expect(script).not.toContain('</script')
-    expect(evaluateScript(script).__ISIK_PUBLIC_CONFIG__).toEqual({
+    expect(evaluateScript(script).__APP_CONFIG__).toEqual({
       EVIL: '</script><script>alert(1)</script>',
     })
   })
 
   it('escapes the line terminators JSON.stringify emits raw', () => {
-    const script = serializePublicConfigScript('__ISIK_PUBLIC_CONFIG__', { SEPARATORS: '\u2028\u2029' })
+    const script = serializePublicConfigScript('__APP_CONFIG__', { SEPARATORS: '\u2028\u2029' })
 
     expect(script).not.toContain('\u2028')
     expect(script).not.toContain('\u2029')
-    expect(evaluateScript(script).__ISIK_PUBLIC_CONFIG__).toEqual({ SEPARATORS: '\u2028\u2029' })
+    expect(evaluateScript(script).__APP_CONFIG__).toEqual({ SEPARATORS: '\u2028\u2029' })
   })
 
   it('escapes a hostile global key too', () => {
@@ -321,22 +329,22 @@ describe('serializePublicConfigScript', () => {
   it('normalizes -0 to 0, the one value JSON cannot carry', () => {
     // Reachable through `float()` on "-0". Called out here rather than filtered out of the
     // property below, because it is a real (if narrow) limit of shipping config as JSON.
-    const script = serializePublicConfigScript('__ISIK_PUBLIC_CONFIG__', { ZERO: -0 })
+    const script = serializePublicConfigScript('__APP_CONFIG__', { ZERO: -0 })
 
-    expect(Object.is((evaluateScript(script).__ISIK_PUBLIC_CONFIG__ as { ZERO: number }).ZERO, 0)).toBe(true)
+    expect(Object.is((evaluateScript(script).__APP_CONFIG__ as { ZERO: number }).ZERO, 0)).toBe(true)
   })
 
   test.prop([fc.dictionary(fc.string(), fc.jsonValue())])(
     'round-trips any JSON-serializable config through the emitted script',
     (value) => {
-      const script = serializePublicConfigScript('__ISIK_PUBLIC_CONFIG__', value)
+      const script = serializePublicConfigScript('__APP_CONFIG__', value)
 
       expect(script).not.toContain('</script')
       expect(script).not.toContain('\u2028')
       expect(script).not.toContain('\u2029')
       // The contract is that the browser receives the server value's JSON projection - which is
       // exactly the value itself for everything a built-in caster can produce.
-      expect(evaluateScript(script).__ISIK_PUBLIC_CONFIG__).toEqual(JSON.parse(JSON.stringify(value)))
+      expect(evaluateScript(script).__APP_CONFIG__).toEqual(JSON.parse(JSON.stringify(value)))
     }
   )
 
@@ -346,31 +354,24 @@ describe('serializePublicConfigScript', () => {
   })
 })
 
-describe('resolveGlobalKey', () => {
-  it('uses the bare key when there is no prefix and a namespaced one otherwise', () => {
-    expect(resolveGlobalKey({})).toBe('__ISIK_PUBLIC_CONFIG__')
-    expect(resolveGlobalKey({ prefix: 'PUBLIC' })).toBe('__ISIK_PUBLIC_CONFIG__PUBLIC__')
+describe('requireGlobalKey', () => {
+  it('returns the key it was given, ignoring prefix', () => {
+    expect(requireGlobalKey({ globalKey: '__MY_APP_CONFIG__' })).toBe('__MY_APP_CONFIG__')
+    expect(requireGlobalKey({ globalKey: '__MY_APP_CONFIG__', prefix: 'PUBLIC' })).toBe('__MY_APP_CONFIG__')
   })
 
-  it('takes an explicit globalKey over anything derived from the prefix', () => {
-    expect(resolveGlobalKey({ globalKey: '__MY_APP_CONFIG__' })).toBe('__MY_APP_CONFIG__')
-    expect(resolveGlobalKey({ prefix: 'PUBLIC', globalKey: '__MY_APP_CONFIG__' })).toBe('__MY_APP_CONFIG__')
+  it('rejects a missing key rather than deriving one', () => {
+    expect(() => requireGlobalKey({} as PublicConfigOptions)).toThrow(ConfigError)
+    expect(() => requireGlobalKey({} as PublicConfigOptions)).toThrow(/globalKey is required/)
   })
 
-  it('rejects an empty globalKey as an accident rather than a choice', () => {
-    expect(() => resolveGlobalKey({ globalKey: '' })).toThrow(ConfigError)
+  it('rejects an empty key, and a non-string one from an untyped caller', () => {
+    expect(() => requireGlobalKey({ globalKey: '' })).toThrow(/globalKey is required/)
+    expect(() => requireGlobalKey({ globalKey: 42 } as unknown as PublicConfigOptions)).toThrow(/globalKey is required/)
   })
 
-  test.prop([fc.string({ minLength: 1 }), fc.string({ minLength: 1 })])(
-    'distinct prefixes never share a global key',
-    (a, b) => {
-      fc.pre(a !== b)
-      expect(resolveGlobalKey({ prefix: a })).not.toBe(resolveGlobalKey({ prefix: b }))
-    }
-  )
-
-  test.prop([fc.string({ minLength: 1 })])('an explicit key is used verbatim, whatever it contains', (globalKey) => {
-    expect(resolveGlobalKey({ prefix: 'IGNORED', globalKey })).toBe(globalKey)
+  test.prop([fc.string({ minLength: 1 })])('any non-empty string is used verbatim', (globalKey) => {
+    expect(requireGlobalKey({ globalKey, prefix: 'IGNORED' })).toBe(globalKey)
   })
 })
 
@@ -423,7 +424,7 @@ describe('server and browser halves agree', () => {
    * property is that the browser half reads whatever key the server half wrote, for any options,
    * with neither the key nor the payload chosen by the test.
    */
-  const roundTrip = async (options: { prefix?: string; globalKey?: string }) => {
+  const roundTrip = async (options: PublicConfigOptions) => {
     resetConfigNamespaces()
 
     const { PublicConfigScript } = publicConfig(SCHEMA, options)
@@ -443,16 +444,16 @@ describe('server and browser halves agree', () => {
       vi.stubEnv('A', values.A)
       vi.stubEnv('B', values.B)
 
-      expect(await roundTrip({})).toEqual(values)
+      expect(await roundTrip({ globalKey: KEY })).toEqual(values)
     }
   )
 
   test.prop([
     fc.record({
       prefix: fc.constantFrom(undefined, 'PUBLIC', 'APP__PUBLIC'),
-      globalKey: fc.constantFrom(undefined, '__ISIK_TEST_A__', '__ISIK_TEST_B__'),
+      globalKey: fc.constantFrom('__APP_A__', '__APP_B__'),
     }),
-  ])('any prefix/globalKey combination round-trips, because one resolver decides the key', async (options) => {
+  ])('any prefix/globalKey combination round-trips, because both halves read the same one', async (options) => {
     const prefixed = (name: string) => (options.prefix === undefined ? name : `${options.prefix}__${name}`)
     vi.stubEnv(prefixed('A'), 'value-a')
     vi.stubEnv(prefixed('B'), 'value-b')

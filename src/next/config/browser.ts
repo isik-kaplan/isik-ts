@@ -1,6 +1,6 @@
 import type { ConfigSchema, InferConfig } from '../../node/configCore'
 import { ConfigError } from '../../node/configError'
-import { type PublicConfig, type PublicConfigOptions, lazyConfigProxy, memoize, resolveGlobalKey } from './shared'
+import { type PublicConfig, type PublicConfigOptions, lazyConfigProxy, memoize, requireGlobalKey } from './shared'
 
 /**
  * The browser half of `publicConfig()`, substituted for the server module by the `browser`
@@ -12,10 +12,11 @@ import { type PublicConfig, type PublicConfigOptions, lazyConfigProxy, memoize, 
  * The schema argument is accepted and ignored - values arrive already cast, through the injected
  * global. It stays in the signature so `InferConfig<S>` produces the identical type on both
  * sides, which is what lets one `app/config.ts` be imported by server and client components
- * alike.
+ * alike. `options.globalKey` is not ignored: it is the only thing this half needs, and it is read
+ * from the same options object the server half was given.
  */
-export function publicConfig<S extends ConfigSchema>(_schema: S, options: PublicConfigOptions = {}): PublicConfig<S> {
-  const globalKey = resolveGlobalKey(options)
+export function publicConfig<S extends ConfigSchema>(_schema: S, options: PublicConfigOptions): PublicConfig<S> {
+  const globalKey = requireGlobalKey(options)
 
   return {
     CONFIG: lazyConfigProxy<InferConfig<S>>(memoize(() => readInjectedConfig<S>(globalKey))),

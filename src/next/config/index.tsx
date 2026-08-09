@@ -13,7 +13,7 @@ import {
   type PublicConfigScriptProps,
   lazyConfigProxy,
   memoize,
-  resolveGlobalKey,
+  requireGlobalKey,
   serializePublicConfigScript,
 } from './shared'
 
@@ -31,11 +31,17 @@ export type { PublicConfig, PublicConfigOptions, PublicConfigScriptComponent, Pu
  * must not overlap one already claimed by `config()`, so a server-only key pasted into this
  * schema by mistake resolves to nothing and throws rather than getting published.
  *
+ * `options.globalKey` is required - it names the `window` property the payload is injected under,
+ * and there is no default to fall back to.
+ *
  * Values are read per request, not baked in at build - which is the entire point next to
  * `NEXT_PUBLIC_*`, and what lets one image run in staging and production. Nothing resolves until
  * something reads it, so `next build` needs none of these variables set.
  */
-export function publicConfig<S extends ConfigSchema>(schema: S, options: PublicConfigOptions = {}): PublicConfig<S> {
+export function publicConfig<S extends ConfigSchema>(schema: S, options: PublicConfigOptions): PublicConfig<S> {
+  // Validated before the namespace is claimed, so a call that is going to throw anyway doesn't
+  // leave a claim behind for the next call to collide with.
+  const globalKey = requireGlobalKey(options)
   const { prefix, sep = '__' } = options
 
   const conflict = claimConfigNamespace({ kind: 'public', prefix: prefix ?? '', sep })
@@ -43,7 +49,6 @@ export function publicConfig<S extends ConfigSchema>(schema: S, options: PublicC
     throw new ConfigError(conflict)
   }
 
-  const globalKey = resolveGlobalKey(options)
   const resolve = memoize(() => buildConfig(schema, prefix, sep))
 
   async function PublicConfigScript({ nonce }: PublicConfigScriptProps) {

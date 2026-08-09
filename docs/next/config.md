@@ -25,7 +25,7 @@ export const { CONFIG, PublicConfigScript } = publicConfig(
       LOCALES: commaSeparatedList({ missingDefault: ['en'] }),
     },
   },
-  { prefix: 'PUBLIC' }
+  { globalKey: '__MY_APP_CONFIG__', prefix: 'PUBLIC' }
 )
 ```
 
@@ -87,7 +87,7 @@ That rule exists because of one specific mistake. Paste `SESSION_SECRET: string(
 
 Only a server/public overlap is a conflict. Any number of `config()` calls may share a namespace, as may any number of `publicConfig()` calls - two server reads of one variable are harmless. Overlap means either identical prefixes, or one nested under the other at a separator boundary (`APP` and `APP__PUBLIC` both reach `APP__PUBLIC__TOKEN`).
 
-Two `publicConfig()` calls sharing a prefix is allowed but needs one more thing from you: they would also derive the same `globalKey`, and the injected payload is defined non-writable, so the second script would decline to overwrite the first and the second config would read back as `undefined` in the browser (while resolving fine on the server). Give them distinct [`globalKey`](#naming-the-injected-global)s.
+Two `publicConfig()` calls may share a prefix freely. Nothing about the browser payload is derived from it - each call names its own [`globalKey`](#naming-the-injected-global) - so there is no shared state for them to fight over.
 
 An absent prefix counts as a value, so `config()` and `publicConfig()` both unprefixed is the one combination rejected outright. An absent prefix is otherwise treated as disjoint from every named one: unprefixed server config alongside prefixed public config is the most natural setup there is, and the only way it genuinely collides is a server schema with a top-level key named exactly like the public prefix. Rejecting that whole shape would cost more than it buys.
 
@@ -95,18 +95,19 @@ An absent prefix counts as a value, so `config()` and `publicConfig()` both unpr
 
 ## Naming the injected global
 
-The payload is injected as a property on `window`. By default that property is derived from the prefix - `__ISIK_PUBLIC_CONFIG__` with none, `__ISIK_PUBLIC_CONFIG__PUBLIC__` with `prefix: 'PUBLIC'` - and `globalKey` overrides it outright:
+`globalKey` is **required**. It names the property the payload is injected under on `window`, and there is no default and nothing derived from `prefix` to fall back to:
 
 ```typescript
-export const { CONFIG, PublicConfigScript } = publicConfig(
-  { API_URL: string() },
-  { prefix: 'PUBLIC', globalKey: '__MY_APP_CONFIG__' }
-)
+publicConfig({ API_URL: string() }, { globalKey: '__MY_APP_CONFIG__' })
 ```
 
-Reach for it to run two public configs off one prefix, to keep two copies of this package on one page from reading each other's payload, or simply to own the name. Any string works - the key is emitted as an escaped literal and read back with bracket notation - and only an empty string is rejected, as far likelier to be an accident than an intent.
+Omit it and you get a `ConfigError` naming what's missing, not a working config under a name you didn't pick.
 
-Both halves resolve the key through the same function from the same options object, and that object lives at a single call site in your app - only the library import flips between the server and browser builds. So the two sides cannot disagree about where the payload went, which matters because a server that wrote one property and a browser that read another would fail with nothing to point at.
+Two reasons it works this way rather than defaulting. The property lands in **your** application's global namespace, so the name belongs to you - a library-chosen `__SOME_PACKAGE_CONFIG__` is this package writing its own identity into every app that installs it. And a default is a name two `publicConfig()` calls can agree on without either of them writing it down: since the payload is injected non-writable, the second injection declines to overwrite the first, and that config reads back as `undefined` in the browser while still resolving correctly on the server. Requiring the name turns that from an invisible collision into two lines you can read side by side.
+
+Any non-empty string works - the key is emitted as an escaped literal and read back with bracket notation, so there is nothing to restrict. Empty strings and (for callers without types) non-strings are rejected.
+
+Both halves read the key from the same options object through the same function, and that object lives at a single call site in your app - only the library import flips between the server and browser builds. So the two sides cannot disagree about where the payload went, which matters because a server that wrote one property and a browser that read another would fail with nothing to point at.
 
 ## Values must survive a JSON round-trip
 

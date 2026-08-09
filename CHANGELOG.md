@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-09
+
+### Changed
+
+- **Breaking:** `publicConfig`'s `globalKey` option is now required, and `options` with it. There
+  is no default and nothing derived from `prefix` - the package no longer picks a name on any
+  consuming app's `window`. Omitting it throws `ConfigError` naming what's missing.
+  - The injected property lands in the app's global namespace, so the name belongs to the app.
+    A package-chosen `__SOME_PACKAGE_CONFIG__` wrote this package's identity into every app that
+    installed it.
+  - A derived default was also a name two `publicConfig()` calls could agree on without either
+    writing it down. Since the payload is injected non-writable, the second injection declines to
+    overwrite the first, so that config read back as `undefined` in the browser while still
+    resolving on the server. Requiring the name turns an invisible collision into two readable
+    lines, and makes the 0.4.0 caveat about sharing a prefix moot - nothing about the browser
+    payload derives from `prefix` any more.
+  - Any non-empty string is accepted. Empty strings, and non-strings from callers without types,
+    throw.
+  - Migration: add `{ globalKey: '__YOUR_APP_CONFIG__' }` to every `publicConfig()` call. Existing
+    0.4.0 callers relying on the derived name can pass their old key
+    (`__ISIK_PUBLIC_CONFIG__`, or `__ISIK_PUBLIC_CONFIG__<PREFIX>__` when prefixed) to keep the
+    emitted payload byte-identical.
+- `tests/build.test.ts` asserts the browser build contains no reference to the package name at
+  all, and that neither build carries a default global property name. The one package-scoped name
+  that remains is the `Symbol.for('@isikk/core/config-namespace-registry')` key used by the
+  server-side namespace registry, which is bookkeeping rather than a property on anyone's window,
+  and is absent from the browser build.
+
 ## [0.4.0] - 2026-08-09
 
 ### Added
