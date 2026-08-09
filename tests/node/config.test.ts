@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { boolean, caster, commaSeparatedList, integer, string } from '../../src/node/casters'
 import { ConfigError, config } from '../../src/node/config'
+import { claimConfigNamespace, resetConfigNamespaces } from '../../src/node/configRegistry'
 
 describe('config', () => {
+  beforeEach(() => {
+    resetConfigNamespaces()
+  })
+
   it('reads and casts values from process.env', () => {
     vi.stubEnv('PORT', '3000')
     vi.stubEnv('DEBUG', 'true')
@@ -90,5 +95,21 @@ describe('config', () => {
     })()
 
     expect(() => config({ WEIRD: throwsAString })).toThrow(/not an Error instance/)
+  })
+
+  it('throws ConfigError when publicConfig has already claimed the same namespace', () => {
+    claimConfigNamespace({ kind: 'public', prefix: 'SHARED', sep: '__' })
+
+    expect(() => config({ PORT: integer() }, { prefix: 'SHARED' })).toThrow(ConfigError)
+    expect(() => config({ PORT: integer() }, { prefix: 'SHARED' })).toThrow(/publicConfig\(\) already claimed/)
+  })
+
+  it('does not claim a namespace that conflicts, so the variables are never read', () => {
+    vi.stubEnv('SHARED__PORT', 'not-a-number')
+    claimConfigNamespace({ kind: 'public', prefix: 'SHARED', sep: '__' })
+
+    // The namespace check runs before any environment read, so the unparseable value never
+    // surfaces - callers see the conflict, which is the actionable error of the two.
+    expect(() => config({ PORT: integer() }, { prefix: 'SHARED' })).toThrow(/same environment variable namespace/)
   })
 })

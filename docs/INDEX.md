@@ -33,7 +33,8 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 - [next/](next/README.md) - `runProxyIfPathMatches`, `stripEmptyQueryParams`, the `setCookie`/
   `getCookie`/`removeCookie` Server Actions, `getSafeRedirect`, `getRequestOrigin`,
-  `createSessionGuards` (peer dep: `next`, `react` for `createSessionGuards`)
+  `createSessionGuards`, `publicConfig` (peer dep: `next`, `react` for `createSessionGuards` and
+  `publicConfig`)
 
 ## Everything else
 

@@ -58,6 +58,7 @@ env.DATABASE.HOST // string, read from process.env.DATABASE__HOST (nested keys j
   - `errorDefault` is used when the variable is set but the caster throws trying to parse it.
   - Neither is required - if you omit them, a missing or unparseable variable throws `ConfigError` instead.
 - Environment variable names are built by joining the schema's key path with `sep` (`"__"` by default) - `{ DATABASE: { HOST: string() } }` reads `process.env.DATABASE__HOST`. Pass `{ prefix: 'MYAPP' }` to prepend a namespace to every variable name (`MYAPP__DATABASE__HOST`), or `{ sep: '.' }` to change the joiner.
+- Values read here are server-only - nothing in this module serializes them anywhere. `config()` records its prefix as a **server** namespace, and throws `ConfigError` if [`publicConfig()`](next/config.md) has claimed an overlapping one, so a key pasted into a browser-visible schema by mistake can't quietly resolve to a server secret. Any number of `config()` calls may share a namespace; only a server/public overlap is rejected. See [next/config.md](next/config.md#prefixes-and-the-one-overlap-that-is-rejected).
 - Write your own caster with the `caster` factory - wrap any `(value: string) => T` function:
 
   ```typescript

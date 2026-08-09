@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-09
+
+### Added
+
+- `@isikk/core/next/config` (new entry point): `publicConfig(schema, options)` - the
+  browser-visible sibling of `config()`, returning `{ CONFIG, PublicConfigScript }`. Same
+  nested-caster schema and the same `prefix`/`sep` naming, but resolved **per request** and
+  serialized into the document, so one image runs in every environment instead of the one
+  `NEXT_PUBLIC_*` bakes its values into at build time.
+  - Ships a server build and a browser build behind export conditions rather than a runtime
+    branch. The browser build contains no `process.env` reference at all, so bundling the config
+    module for the client cannot leak a server value whatever the schema says; `tests/build.test.ts`
+    asserts that against the emitted file. `edge-light`/`worker`/`node` are declared above
+    `browser`, since Next's edge compiler sets `browser` too and would otherwise resolve
+    middleware to the browser build.
+  - Resolution is deferred until something reads the config, so `next build` no longer needs the
+    environment populated just to compile, and the injected global is read at access time rather
+    than at chunk-evaluation time.
+  - `PublicConfigScript` awaits `connection()` to force a runtime read, then injects via
+    `useServerInsertedHTML` so the payload lands in `<head>` ahead of the App Router's own `async`
+    chunk scripts. Takes an optional `nonce`. Under Cache Components it belongs inside a
+    `<Suspense>` boundary.
+  - The serialized payload escapes `<` and U+2028/U+2029, so a value containing `</script>`
+    cannot break out of the tag and a value containing a line separator cannot produce a syntax
+    error. The injected object is deep-frozen and non-writable.
+- `@isikk/core/node` now also exports the `ConfigSchema`, `InferConfig` and `ConfigOptions`
+  types, shared with `publicConfig`.
+
+### Changed
+
+- `config()` records its prefix as a server namespace and throws `ConfigError` when
+  `publicConfig()` has claimed an overlapping one (identical, or nested at a separator boundary).
+  Any number of same-kind calls may share a namespace - only a server/public overlap is a
+  conflict, which is what stops a key pasted into a public schema by mistake from resolving to a
+  real secret. Best-effort: the check only fires when both calls are evaluated in the same
+  process.
+- CI builds before running tests, so the build-output assertions in `tests/build.test.ts` have
+  something to assert against. `npm test` now expects `dist/` to exist - run `npm run build`
+  first after a fresh clone.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

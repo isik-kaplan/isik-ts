@@ -34,8 +34,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Run tests with coverage
-        run: npm run test:coverage
-
+      # Before the tests, not after: tests/build.test.ts asserts on the emitted files, since the
+      # safety of @isikk/core/next/config rests on properties only the build can have
+      # (no process.env in the browser output, a surviving 'use client' directive).
       - name: Build package
         run: npm run build
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
