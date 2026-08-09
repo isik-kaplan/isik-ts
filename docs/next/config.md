@@ -87,9 +87,26 @@ That rule exists because of one specific mistake. Paste `SESSION_SECRET: string(
 
 Only a server/public overlap is a conflict. Any number of `config()` calls may share a namespace, as may any number of `publicConfig()` calls - two server reads of one variable are harmless. Overlap means either identical prefixes, or one nested under the other at a separator boundary (`APP` and `APP__PUBLIC` both reach `APP__PUBLIC__TOKEN`).
 
+Two `publicConfig()` calls sharing a prefix is allowed but needs one more thing from you: they would also derive the same `globalKey`, and the injected payload is defined non-writable, so the second script would decline to overwrite the first and the second config would read back as `undefined` in the browser (while resolving fine on the server). Give them distinct [`globalKey`](#naming-the-injected-global)s.
+
 An absent prefix counts as a value, so `config()` and `publicConfig()` both unprefixed is the one combination rejected outright. An absent prefix is otherwise treated as disjoint from every named one: unprefixed server config alongside prefixed public config is the most natural setup there is, and the only way it genuinely collides is a server schema with a top-level key named exactly like the public prefix. Rejecting that whole shape would cost more than it buys.
 
 **The check is best-effort.** It fires when both calls are evaluated in the same process. If your server config lives in `lib/server-config.ts` and your public config in `app/config.ts`, a route importing only the latter never triggers it, so a violation can throw on one route and pass silently on another. Treat it as a backstop, not a guarantee - the schema is still the thing to read carefully.
+
+## Naming the injected global
+
+The payload is injected as a property on `window`. By default that property is derived from the prefix - `__ISIK_PUBLIC_CONFIG__` with none, `__ISIK_PUBLIC_CONFIG__PUBLIC__` with `prefix: 'PUBLIC'` - and `globalKey` overrides it outright:
+
+```typescript
+export const { CONFIG, PublicConfigScript } = publicConfig(
+  { API_URL: string() },
+  { prefix: 'PUBLIC', globalKey: '__MY_APP_CONFIG__' }
+)
+```
+
+Reach for it to run two public configs off one prefix, to keep two copies of this package on one page from reading each other's payload, or simply to own the name. Any string works - the key is emitted as an escaped literal and read back with bracket notation - and only an empty string is rejected, as far likelier to be an accident than an intent.
+
+Both halves resolve the key through the same function from the same options object, and that object lives at a single call site in your app - only the library import flips between the server and browser builds. So the two sides cannot disagree about where the payload went, which matters because a server that wrote one property and a browser that read another would fail with nothing to point at.
 
 ## Values must survive a JSON round-trip
 
@@ -133,7 +150,7 @@ Conditions match in declaration order, which is why `browser` sits below the ser
 - **Next 15+**, because of `connection()`. The package's other `next/*` entry points still support `>=14`.
 - **A CSP nonce** goes through the `nonce` prop: `<PublicConfigScript nonce={(await headers()).get('x-nonce') ?? undefined} />` from an async layout.
 - **Catch `ConfigError` from the entry point you called.** Each entry point bundles its own copy of the class, so `instanceof` works within an entry point but not across one - use the `ConfigError` exported from `@isikk/core/next/config` for errors thrown by `publicConfig`.
-- **Testing outside Next**: the browser half throws a directed error if nothing was injected. Assign the global yourself (`__ISIK_PUBLIC_CONFIG__`, or `__ISIK_PUBLIC_CONFIG__<PREFIX>__` when prefixed) before anything reads the config.
+- **Testing outside Next**: the browser half throws a directed error if nothing was injected, naming the property it looked for. Assign that property yourself before anything reads the config.
 
 ## Why this is a separate entry point, and ESM-only
 

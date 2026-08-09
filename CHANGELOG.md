@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-09
+
+### Added
+
+- `publicConfig` takes a `globalKey` option, naming the `window` property the payload is injected
+  under instead of always deriving it from `prefix`. Both halves resolve it through one shared
+  function from the same options object - which lives at a single call site in the consuming app,
+  since only the library import flips between builds - so the server and the browser cannot
+  disagree about where the payload went. Any string is accepted (the key is emitted as an escaped
+  literal and read with bracket notation); an empty one throws.
+
+### Fixed
+
+- Documented that two `publicConfig()` calls sharing a prefix also derive the same global key, so
+  the second payload silently declines to overwrite the first and reads back as `undefined` in the
+  browser while resolving correctly on the server. `globalKey` is the way to separate them. The
+  0.3.0 docs claimed any number of same-kind calls could share a namespace, which was true of
+  `config()` but not of `publicConfig()`.
+
 ## [0.3.0] - 2026-08-09
 
 ### Added

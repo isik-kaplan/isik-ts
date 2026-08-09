@@ -1,6 +1,6 @@
 import type { ConfigSchema, InferConfig } from '../../node/configCore'
 import { ConfigError } from '../../node/configError'
-import { type PublicConfig, type PublicConfigOptions, globalKeyFor, lazyConfigProxy, memoize } from './shared'
+import { type PublicConfig, type PublicConfigOptions, lazyConfigProxy, memoize, resolveGlobalKey } from './shared'
 
 /**
  * The browser half of `publicConfig()`, substituted for the server module by the `browser`
@@ -15,7 +15,7 @@ import { type PublicConfig, type PublicConfigOptions, globalKeyFor, lazyConfigPr
  * alike.
  */
 export function publicConfig<S extends ConfigSchema>(_schema: S, options: PublicConfigOptions = {}): PublicConfig<S> {
-  const globalKey = globalKeyFor(options.prefix ?? '')
+  const globalKey = resolveGlobalKey(options)
 
   return {
     CONFIG: lazyConfigProxy<InferConfig<S>>(memoize(() => readInjectedConfig<S>(globalKey))),

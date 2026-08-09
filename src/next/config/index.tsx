@@ -11,9 +11,9 @@ import {
   type PublicConfig,
   type PublicConfigOptions,
   type PublicConfigScriptProps,
-  globalKeyFor,
   lazyConfigProxy,
   memoize,
+  resolveGlobalKey,
   serializePublicConfigScript,
 } from './shared'
 
@@ -43,7 +43,7 @@ export function publicConfig<S extends ConfigSchema>(schema: S, options: PublicC
     throw new ConfigError(conflict)
   }
 
-  const globalKey = globalKeyFor(prefix ?? '')
+  const globalKey = resolveGlobalKey(options)
   const resolve = memoize(() => buildConfig(schema, prefix, sep))
 
   async function PublicConfigScript({ nonce }: PublicConfigScriptProps) {

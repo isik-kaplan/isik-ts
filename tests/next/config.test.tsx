@@ -9,10 +9,10 @@ import { publicConfig as browserPublicConfig } from '../../src/next/config/brows
 import { publicConfig } from '../../src/next/config/index'
 import { PublicConfigInsert } from '../../src/next/config/insert'
 import {
-  globalKeyFor,
   jsStringLiteral,
   lazyConfigProxy,
   memoize,
+  resolveGlobalKey,
   serializePublicConfigScript,
 } from '../../src/next/config/shared'
 import { boolean, commaSeparatedList, integer, string } from '../../src/node/casters'
@@ -50,7 +50,7 @@ beforeEach(() => {
   // Reflect.ownKeys, not Object.keys: the injected property is defined non-enumerable in some of
   // these tests, and a leftover would make the "nothing was injected" case silently pass.
   for (const key of Reflect.ownKeys(globalThis)) {
-    if (typeof key === 'string' && key.startsWith('__ISIK_PUBLIC_CONFIG__')) {
+    if (typeof key === 'string' && key.startsWith('__ISIK_')) {
       Reflect.deleteProperty(globalThis, key)
     }
   }
@@ -132,7 +132,36 @@ describe('publicConfig (server)', () => {
 
     expect(first.CONFIG.A).toBe(1)
     expect(second.CONFIG.B).toBe(2)
-    expect(globalKeyFor('ONE')).not.toBe(globalKeyFor('TWO'))
+    expect(resolveGlobalKey({ prefix: 'ONE' })).not.toBe(resolveGlobalKey({ prefix: 'TWO' }))
+  })
+
+  it('injects under an explicit globalKey when given one', async () => {
+    vi.stubEnv('API_URL', 'https://api.example.com')
+    const { PublicConfigScript } = publicConfig({ API_URL: string() }, { globalKey: '__ISIK_TEST_CUSTOM__' })
+
+    const element = (await PublicConfigScript({})) as { props: { script: string } }
+    const injected = evaluateScript(element.props.script)
+
+    expect(injected.__ISIK_TEST_CUSTOM__).toEqual({ API_URL: 'https://api.example.com' })
+    expect(injected.__ISIK_PUBLIC_CONFIG__).toBeUndefined()
+  })
+
+  it('lets two configs share a prefix as long as their global keys differ', async () => {
+    vi.stubEnv('SHARED__A', '1')
+    vi.stubEnv('SHARED__B', '2')
+
+    const first = publicConfig({ A: integer() }, { prefix: 'SHARED', globalKey: '__ISIK_TEST_FIRST__' })
+    const second = publicConfig({ B: integer() }, { prefix: 'SHARED', globalKey: '__ISIK_TEST_SECOND__' })
+
+    const window: Record<string, unknown> = {}
+    for (const { PublicConfigScript } of [first, second]) {
+      const element = (await PublicConfigScript({})) as { props: { script: string } }
+      // eslint-disable-next-line no-new-func
+      new Function('window', element.props.script)(window)
+    }
+
+    expect(window.__ISIK_TEST_FIRST__).toEqual({ A: 1 })
+    expect(window.__ISIK_TEST_SECOND__).toEqual({ B: 2 })
   })
 })
 
@@ -205,9 +234,18 @@ describe('publicConfig (browser)', () => {
   })
 
   it('reads the global namespaced by prefix', () => {
-    Object.defineProperty(globalThis, globalKeyFor('PUBLIC'), { value: { A: 1 }, configurable: true })
+    Object.defineProperty(globalThis, resolveGlobalKey({ prefix: 'PUBLIC' }), { value: { A: 1 }, configurable: true })
 
     expect(browserPublicConfig({ A: integer() }, { prefix: 'PUBLIC' }).CONFIG.A).toBe(1)
+  })
+
+  it('reads an explicit globalKey, and names it when it is missing', () => {
+    Object.defineProperty(globalThis, '__ISIK_TEST_CUSTOM__', { value: { A: 1 }, configurable: true })
+
+    expect(browserPublicConfig({ A: integer() }, { globalKey: '__ISIK_TEST_CUSTOM__' }).CONFIG.A).toBe(1)
+    expect(() => browserPublicConfig({ A: integer() }, { globalKey: '__ISIK_TEST_ABSENT__' }).CONFIG.A).toThrow(
+      /window\.__ISIK_TEST_ABSENT__ is not set/
+    )
   })
 
   it('defers the global read, then explains itself when nothing was injected', () => {
@@ -308,19 +346,32 @@ describe('serializePublicConfigScript', () => {
   })
 })
 
-describe('globalKeyFor', () => {
+describe('resolveGlobalKey', () => {
   it('uses the bare key when there is no prefix and a namespaced one otherwise', () => {
-    expect(globalKeyFor('')).toBe('__ISIK_PUBLIC_CONFIG__')
-    expect(globalKeyFor('PUBLIC')).toBe('__ISIK_PUBLIC_CONFIG__PUBLIC__')
+    expect(resolveGlobalKey({})).toBe('__ISIK_PUBLIC_CONFIG__')
+    expect(resolveGlobalKey({ prefix: 'PUBLIC' })).toBe('__ISIK_PUBLIC_CONFIG__PUBLIC__')
+  })
+
+  it('takes an explicit globalKey over anything derived from the prefix', () => {
+    expect(resolveGlobalKey({ globalKey: '__MY_APP_CONFIG__' })).toBe('__MY_APP_CONFIG__')
+    expect(resolveGlobalKey({ prefix: 'PUBLIC', globalKey: '__MY_APP_CONFIG__' })).toBe('__MY_APP_CONFIG__')
+  })
+
+  it('rejects an empty globalKey as an accident rather than a choice', () => {
+    expect(() => resolveGlobalKey({ globalKey: '' })).toThrow(ConfigError)
   })
 
   test.prop([fc.string({ minLength: 1 }), fc.string({ minLength: 1 })])(
     'distinct prefixes never share a global key',
     (a, b) => {
       fc.pre(a !== b)
-      expect(globalKeyFor(a)).not.toBe(globalKeyFor(b))
+      expect(resolveGlobalKey({ prefix: a })).not.toBe(resolveGlobalKey({ prefix: b }))
     }
   )
+
+  test.prop([fc.string({ minLength: 1 })])('an explicit key is used verbatim, whatever it contains', (globalKey) => {
+    expect(resolveGlobalKey({ prefix: 'IGNORED', globalKey })).toBe(globalKey)
+  })
 })
 
 describe('memoize', () => {
@@ -364,22 +415,48 @@ describe('lazyConfigProxy', () => {
 })
 
 describe('server and browser halves agree', () => {
+  const SCHEMA = { A: string(), B: string() }
+
+  /**
+   * Drives both halves off one options object, the way a consuming app does - the schema and
+   * options sit at a single call site and only the library import flips between builds. The
+   * property is that the browser half reads whatever key the server half wrote, for any options,
+   * with neither the key nor the payload chosen by the test.
+   */
+  const roundTrip = async (options: { prefix?: string; globalKey?: string }) => {
+    resetConfigNamespaces()
+
+    const { PublicConfigScript } = publicConfig(SCHEMA, options)
+    const element = (await PublicConfigScript({})) as { props: { script: string } }
+    const injected = evaluateScript(element.props.script)
+
+    for (const [key, value] of Object.entries(injected)) {
+      Object.defineProperty(globalThis, key, { value, configurable: true })
+    }
+
+    return { ...browserPublicConfig(SCHEMA, options).CONFIG }
+  }
+
   test.prop([fc.record({ A: fc.string(), B: fc.string() })])(
     'the browser reads back exactly what the server serialized',
-    (values) => {
-      resetConfigNamespaces()
+    async (values) => {
       vi.stubEnv('A', values.A)
       vi.stubEnv('B', values.B)
 
-      const { CONFIG } = publicConfig({ A: string(), B: string() })
-      const injected = evaluateScript(serializePublicConfigScript(globalKeyFor(''), { ...CONFIG }))
-
-      Object.defineProperty(globalThis, '__ISIK_PUBLIC_CONFIG__', {
-        value: injected.__ISIK_PUBLIC_CONFIG__,
-        configurable: true,
-      })
-
-      expect({ ...browserPublicConfig({ A: string(), B: string() }).CONFIG }).toEqual(values)
+      expect(await roundTrip({})).toEqual(values)
     }
   )
+
+  test.prop([
+    fc.record({
+      prefix: fc.constantFrom(undefined, 'PUBLIC', 'APP__PUBLIC'),
+      globalKey: fc.constantFrom(undefined, '__ISIK_TEST_A__', '__ISIK_TEST_B__'),
+    }),
+  ])('any prefix/globalKey combination round-trips, because one resolver decides the key', async (options) => {
+    const prefixed = (name: string) => (options.prefix === undefined ? name : `${options.prefix}__${name}`)
+    vi.stubEnv(prefixed('A'), 'value-a')
+    vi.stubEnv(prefixed('B'), 'value-b')
+
+    expect(await roundTrip(options)).toEqual({ A: 'value-a', B: 'value-b' })
+  })
 })

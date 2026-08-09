@@ -1,12 +1,19 @@
 import type { ReactNode } from 'react'
 
 import type { ConfigSchema, InferConfig } from '../../node/configCore'
+import { ConfigError } from '../../node/configError'
 
 export interface PublicConfigOptions {
   /** Prepended to every environment variable name this call reads, joined with `sep`. */
   prefix?: string
   /** Joins the prefix and the nested key path into a variable name. Defaults to `"__"`. */
   sep?: string
+  /**
+   * The property the payload is injected under on `window`. Defaults to a name derived from
+   * `prefix`. Set it to run two public configs off one prefix, to keep two copies of the package
+   * in one page from reading each other's payload, or just to own the name yourself.
+   */
+  globalKey?: string
 }
 
 export interface PublicConfigScriptProps {
@@ -21,14 +28,33 @@ export interface PublicConfig<S extends ConfigSchema> {
   PublicConfigScript: PublicConfigScriptComponent
 }
 
-const GLOBAL_KEY_BASE = '__ISIK_PUBLIC_CONFIG__'
+export const GLOBAL_KEY_BASE = '__ISIK_PUBLIC_CONFIG__'
 
 /**
- * Namespaces the injected global by prefix, so two `publicConfig()` calls land on two properties
- * instead of the second one failing to redefine the first. Prefixes are already required to be
- * distinct from any server namespace, which makes them a usable key.
+ * Decides the property the payload is injected under, from an explicit `globalKey` or else from
+ * `prefix` - which namespaces the default, so two `publicConfig()` calls on different prefixes
+ * land on different properties instead of the second one silently declining to overwrite the
+ * first.
+ *
+ * Both halves of the module resolve the key through this one function, from the same options
+ * object: the schema and options live at a single call site in the consuming app, and only the
+ * library import flips between builds. That is what makes the two sides agree by construction -
+ * a server that wrote one key and a browser that read another would fail with nothing to point
+ * at.
+ *
+ * No character restrictions: the key is emitted as an escaped string literal and read back with
+ * bracket notation, so anything goes. An empty string is rejected only because it is far more
+ * likely to be an accident than an intent.
  */
-export function globalKeyFor(prefix: string): string {
+export function resolveGlobalKey(options: PublicConfigOptions): string {
+  if (options.globalKey !== undefined) {
+    if (options.globalKey === '') {
+      throw new ConfigError('publicConfig: globalKey cannot be an empty string. Omit it to derive one from prefix.')
+    }
+    return options.globalKey
+  }
+
+  const prefix = options.prefix ?? ''
   return prefix === '' ? GLOBAL_KEY_BASE : `${GLOBAL_KEY_BASE}${prefix}__`
 }
 
