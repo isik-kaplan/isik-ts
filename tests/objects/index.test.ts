@@ -94,7 +94,7 @@ describe('setKeyValueToObjectIfValue', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 
-  test.prop([fc.string().filter((k) => !['__proto__', 'constructor', 'prototype'].includes(k)), fc.anything()])(
+  test.prop([fc.string(), fc.anything()])(
     'sets the key on the object exactly when the value is truthy, and never otherwise',
     (key, value) => {
       const object: Record<string, unknown> = {}
@@ -103,7 +103,13 @@ describe('setKeyValueToObjectIfValue', () => {
       if (value) {
         expect(object[key]).toBe(value)
       } else {
-        expect(key in object).toBe(false)
+        // hasOwnProperty, not `key in object`: `in` walks the prototype chain, so for any key
+        // inherited from Object.prototype - valueOf, toString, hasOwnProperty, __defineGetter__ -
+        // it reports true on a fresh {} even though nothing was set. That made this property fail
+        // for whichever seeds happened to generate one of those names with a falsy value (seed
+        // 1770714701 found ["valueOf", 0]), which is what blocked the 0.5.0 publish. Own-property
+        // presence is what the implementation actually promises.
+        expect(Object.prototype.hasOwnProperty.call(object, key)).toBe(false)
       }
     }
   )

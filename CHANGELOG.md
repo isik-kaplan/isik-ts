@@ -7,24 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.6.0] - 2026-08-09
 
-### Fixed
+Absorbs everything tagged `0.5.0` below. **0.5.0 was never published**: its CI run failed on an
+unrelated flaky property test (see Fixed), so the publish job skipped and the version number went
+unused. Consumers go from `0.4.0` straight to `0.6.0`, and this entry is the whole of that jump.
 
-- `@isikk/core/next/config` now re-exports every caster (`string`, `integer`, `float`,
-  `boolean`, the `commaSeparated*` variants and the `caster` factory). Without this the documented
-  usage pattern **could not build**: a schema has to be written at a call site shared with client
-  components and edge routes, but importing casters from `@isikk/core/node` pulls in that
-  barrel's `contextLocal` (`async_hooks`) and `getFileAsString` (`fs`), which have no resolution in
-  those bundles. Caught by the new integration suite on its very first `next build`. The casters
-  themselves are pure `(value: string) => T` factories and add no environment access to the browser
-  build.
-- Documented that `connection()` inside `PublicConfigScript` makes the _payload_ dynamic but does
-  not cover a sibling component's synchronous `CONFIG` read, which still executes during the
-  prerender pass. A route reading config in a server component needs
-  `export const dynamic = 'force-dynamic'`; a route whose HTML depends on the server's environment
-  is dynamic by definition. The 0.3.0 docs implied `PublicConfigScript` handled this for the whole
-  route.
+### Added
 
-## [0.5.0] - 2026-08-09
+- `@isikk/core/next/config` re-exports every caster (`string`, `integer`, `float`, `boolean`,
+  the `commaSeparated*` variants and the `caster` factory), so a schema can be written without
+  importing `@isikk/core/node`. Without this the documented usage pattern **could not build**:
+  a schema has to live at a call site shared with client components and edge routes, but importing
+  casters from `/node` pulls in that barrel's `contextLocal` (`async_hooks`) and `getFileAsString`
+  (`fs`), which have no resolution in those bundles. The casters themselves are pure
+  `(value: string) => T` factories and add no environment access to the browser build.
 
 ### Changed
 
@@ -46,11 +41,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     0.4.0 callers relying on the derived name can pass their old key
     (`__ISIK_PUBLIC_CONFIG__`, or `__ISIK_PUBLIC_CONFIG__<PREFIX>__` when prefixed) to keep the
     emitted payload byte-identical.
-- `tests/build.test.ts` asserts the browser build contains no reference to the package name at
-  all, and that neither build carries a default global property name. The one package-scoped name
-  that remains is the `Symbol.for('@isikk/core/config-namespace-registry')` key used by the
-  server-side namespace registry, which is bookkeeping rather than a property on anyone's window,
-  and is absent from the browser build.
+
+### Fixed
+
+- `tests/objects/index.test.ts` asserted `key in object` for the falsy branch of
+  `setKeyValueToObjectIfValue`. `in` walks the prototype chain, so any key inherited from
+  `Object.prototype` - `valueOf`, `toString`, `hasOwnProperty`, `__defineGetter__` - reported `true`
+  on a fresh `{}` even though nothing had been set. Whether CI passed depended on whether the run's
+  random seed produced one of those names with a falsy value; seed `1770714701` found
+  `["valueOf", 0]` and took down the 0.5.0 release. Now asserts own-property presence, which is what
+  the implementation actually promises, and the arbitrary no longer needs to filter
+  `__proto__`/`constructor`/`prototype` out - they hold too. The implementation was always correct.
+- Documented that `connection()` inside `PublicConfigScript` makes the _payload_ dynamic but does
+  not cover a sibling component's synchronous `CONFIG` read, which still executes during the
+  prerender pass. A route reading config in a server component needs
+  `export const dynamic = 'force-dynamic'`; a route whose HTML depends on the server's environment
+  is dynamic by definition. The 0.3.0 docs implied `PublicConfigScript` handled this for the whole
+  route.
+- Dependencies: `next` 16.2.12 -> 16.3.0, plus transitive `postcss` and `sharp`, clearing six
+  high-severity advisories. Dev-only - none of these ship in `dist/`.
 
 ## [0.4.0] - 2026-08-09
 
