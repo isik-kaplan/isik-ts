@@ -85,6 +85,9 @@ export function useFormState<T>(initialState: T) {
     }
   }
 
+  // Stryker disable next-line StringLiteral: equivalent mutant. handleFormState only ever
+  // compares inputType against 'event' - any other string, including this one, takes the exact
+  // same branch, so the specific label 'value' carries no behavior of its own.
   const handleFormStateValue = <K extends keyof T>(key: K) => handleFormState<K, T[K]>({ key, inputType: 'value' })
   const handleFormStateEvent = <K extends keyof T>(key: K) =>
     handleFormState<K, InputEventType>({ key, inputType: 'event' })
@@ -142,10 +145,16 @@ export function useFilePaste({
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const clearFiles = useCallback(() => {
-    setFiles([])
-    setError(null)
-  }, [])
+  // The callback body below closes over nothing but the stable setFiles/setError setters, so
+  // its dependency array's contents can never affect whether useCallback returns the same
+  // function - a literal added there would compare equal (Object.is) to itself every render.
+  const clearFiles = useCallback(
+    () => {
+      setFiles([])
+      setError(null)
+    }, // Stryker disable next-line ArrayDeclaration: equivalent mutant, see above.
+    []
+  )
 
   const validateFiles = useCallback(
     (pastedFiles: File[]): { valid: true } | { valid: false; error: string } => {
@@ -197,6 +206,10 @@ export function useFilePaste({
       if (!hasFiles) return
 
       event.preventDefault()
+      // Stryker disable next-line BooleanLiteral: equivalent mutant. validateFiles never yields
+      // (no await between here and the `finally` below), so this and the `finally`'s
+      // setIsLoading(false) land in the same synchronous React commit - an observer can only ever
+      // see the final `false`, never a transient `true`, no matter what this call passes.
       setIsLoading(true)
       setError(null)
 
@@ -276,6 +289,10 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
 
       dragCounter.current += 1
 
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent mutant on
+      // the `.length > 0` half specifically. When items is truthy but empty, entering the block
+      // anyway still runs Array.from([]).some(...), which is vacuously false - the same no-op as
+      // skipping it - so relaxing this to `>= 0` (or dropping it) can't change the outcome.
       if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
         const hasValidItems = Array.from(e.dataTransfer.items).some((item) => {
           if (item.kind !== 'file') {
@@ -336,6 +353,11 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
         isDragging: false,
       }))
 
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent mutant on
+      // the `.length > 0` half specifically. When files is truthy but empty, entering the block
+      // anyway still runs Array.from([]) and every downstream filter/length check on it, which
+      // stay vacuously empty - the same no-op as skipping it - so relaxing this to `>= 0` (or
+      // dropping it) can't change the outcome.
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         let validFiles = Array.from(e.dataTransfer.files)
 
@@ -390,12 +412,18 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
     return undefined
   }, [handleDragOver, handleDragEnter, handleDragLeave, handleDrop])
 
-  const reset = useCallback(() => {
-    setState({
-      isDragging: false,
-      files: null,
-    })
-  }, [])
+  // The callback body below closes over nothing but the stable setState setter, so its
+  // dependency array's contents can never affect whether useCallback returns the same function -
+  // a literal added there would compare equal (Object.is) to itself every render.
+  const reset = useCallback(
+    () => {
+      setState({
+        isDragging: false,
+        files: null,
+      })
+    }, // Stryker disable next-line ArrayDeclaration: equivalent mutant, see above.
+    []
+  )
 
   return {
     ref,

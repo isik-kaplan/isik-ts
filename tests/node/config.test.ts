@@ -71,6 +71,9 @@ describe('config', () => {
     vi.stubEnv('REQUIRED_VAR', undefined)
 
     expect(() => config({ REQUIRED_VAR: string() })).toThrow(ConfigError)
+    expect(() => config({ REQUIRED_VAR: string() })).toThrow(
+      'Environment variable REQUIRED_VAR not found. Please set it or provide a missingDefault to your caster.'
+    )
   })
 
   it('falls back to errorDefault when the value fails to parse', () => {
@@ -85,6 +88,9 @@ describe('config', () => {
     vi.stubEnv('BAD_INT', 'not-a-number')
 
     expect(() => config({ BAD_INT: integer() })).toThrow(ConfigError)
+    expect(() => config({ BAD_INT: integer() })).toThrow(
+      'Please check the value and the caster, or provide an errorDefault to your caster.'
+    )
   })
 
   it('stringifies a non-Error throw from a custom caster instead of reading .message', () => {
@@ -111,5 +117,13 @@ describe('config', () => {
     // The namespace check runs before any environment read, so the unparseable value never
     // surfaces - callers see the conflict, which is the actionable error of the two.
     expect(() => config({ PORT: integer() }, { prefix: 'SHARED' })).toThrow(/same environment variable namespace/)
+  })
+
+  it('claims the server namespace with no prefix by default', () => {
+    claimConfigNamespace({ kind: 'public', prefix: '', sep: '__' })
+
+    // Confirms this call site claims as kind 'server' with prefix '' (not some other kind, and
+    // not a stray literal) when no prefix option is given.
+    expect(() => config({ PORT: integer() })).toThrow(/config\(\) was called with no prefix/)
   })
 })

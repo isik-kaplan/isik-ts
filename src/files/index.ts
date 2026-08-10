@@ -2,8 +2,13 @@ type MimeType = 'image/png' | 'image/jpeg' | 'image/webp'
 
 export function guessImageMimeType(filename: string): MimeType {
   const withoutQueryOrHash = filename.split(/[?#]/)[0]
+  // Stryker disable next-line OptionalChaining: equivalent mutant. String#split always returns at
+  // least one element for any input (including ''), so .pop() here can never actually be
+  // undefined - the `?.` exists only to satisfy Array#pop()'s TypeScript signature.
   const extension = withoutQueryOrHash.split('.').pop()?.toLowerCase()
   switch (extension) {
+    // Stryker disable next-line StringLiteral: equivalent mutant. This case and `default` below
+    // both return 'image/png', so no input can distinguish which of the two branches ran it.
     case 'png':
       return 'image/png'
     case 'jfif':
@@ -31,6 +36,11 @@ export function safeFileName(filename: string, maxLength: number = 255): string 
   const dotIndex = filename.lastIndexOf('.')
   const hasExtension = dotIndex > 0
   const extension = escapeName(hasExtension ? filename.slice(dotIndex) : '')
+  // Stryker disable next-line MethodExpression: equivalent mutant. This branch only runs when
+  // filename.length > maxLength, and escapeName preserves length, so
+  // maxLength - extension.length < maxLength - (filename.length - dotIndex) = dotIndex always
+  // holds. The slice below therefore never reads past index dotIndex, which is exactly where
+  // filename and filename.slice(0, dotIndex) still agree - dropping the slice can't change it.
   const name = escapeName(hasExtension ? filename.slice(0, dotIndex) : filename)
 
   return name.slice(0, Math.max(0, maxLength - extension.length)) + extension

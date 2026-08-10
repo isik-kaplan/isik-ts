@@ -4,7 +4,7 @@
   "description": "Everyday TypeScript utilities.",
   "license": "MIT",
   "author": {
-    "name": "I\u015f\u0131k Kaplan",
+    "name": "Işık Kaplan",
     "email": "isik.kaplan@outlook.com"
   },
   "homepage": "https://github.com/isik-kaplan/isik-ts",
@@ -82,7 +82,8 @@
     "lint": "npm run lint:eslint && npm run lint:types && npm run lint:prettier",
     "fix": "eslint . --fix && prettier --write .",
     "prepare": "husky",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:mutation": "stryker run"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -119,6 +120,8 @@
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^9.9.1",
     "@fast-check/vitest": "^0.4.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",

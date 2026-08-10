@@ -140,6 +140,15 @@ describe('createConsoleDebugSwitch', () => {
     expect(originalLog).not.toHaveBeenCalled()
   })
 
+  it('defines the namespace property as writable, configurable, and enumerable', () => {
+    const fakeWindow = makeFakeWindow()
+    createConsoleDebugSwitch(fakeWindow, { namespace: 'myApp' })
+
+    const descriptor = Object.getOwnPropertyDescriptor(fakeWindow, 'myApp')
+
+    expect(descriptor).toMatchObject({ writable: true, configurable: true, enumerable: true })
+  })
+
   it('does not pollute Object.prototype when namespace is "__proto__"', () => {
     const fakeWindow = makeFakeWindow()
     createConsoleDebugSwitch(fakeWindow, { namespace: '__proto__' })

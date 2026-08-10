@@ -25,8 +25,20 @@ describe('slugify', () => {
     expect(slugify('Café Münster', true)).toBe('café-münster')
   })
 
+  it('still strips punctuation and normalizes when allowUnicode is true', () => {
+    expect(slugify('Café! Münster?', true)).toBe('café-münster')
+  })
+
+  it('keeps digits when allowUnicode is true', () => {
+    expect(slugify('Café123', true)).toBe('café123')
+  })
+
   it('treats embedded line breaks as whitespace instead of deleting them', () => {
     expect(slugify('Hello\r\nWorld')).toBe('hello-world')
+  })
+
+  it('strips runs of leading/trailing dashes and underscores completely, not just one character', () => {
+    expect(slugify('___Hello World___')).toBe('hello-world')
   })
 
   test.prop([fc.string()])(

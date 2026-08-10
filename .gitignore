@@ -8,6 +8,8 @@ dist
 
 # Tests
 coverage
+.stryker-tmp
+reports/mutation
 
 # Integration fixture: built output and the packed tarball installed into it
 fixtures/**/node_modules

@@ -3,7 +3,13 @@ import { fc, test } from '@fast-check/vitest'
 
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { type ConfigNamespace, claimConfigNamespace, resetConfigNamespaces } from '../../src/node/configRegistry'
+import {
+  type ConfigNamespace,
+  claimConfigNamespace,
+  configNamespaceCount,
+  deleteConfigNamespaceRegistry,
+  resetConfigNamespaces,
+} from '../../src/node/configRegistry'
 
 const namespace = (kind: 'server' | 'public', prefix = '', sep = '__'): ConfigNamespace => ({ kind, prefix, sep })
 
@@ -16,6 +22,16 @@ describe('claimConfigNamespace', () => {
     expect(claimConfigNamespace(namespace('server'))).toBeNull()
   })
 
+  it('starts with an empty registry when none exists yet', () => {
+    // Claims first so an empty result actually demonstrates the delete worked, rather than the
+    // registry having simply been empty already.
+    claimConfigNamespace(namespace('server', 'APP'))
+
+    deleteConfigNamespaceRegistry()
+
+    expect(configNamespaceCount()).toBe(0)
+  })
+
   it('rejects a public claim on a namespace the server side already took', () => {
     claimConfigNamespace(namespace('server', 'APP'))
 
@@ -23,6 +39,11 @@ describe('claimConfigNamespace', () => {
 
     expect(conflict).toContain('publicConfig() was called with prefix "APP"')
     expect(conflict).toContain('config() already claimed prefix "APP"')
+    expect(conflict).toBe(
+      'publicConfig() was called with prefix "APP", but config() already claimed prefix "APP" - they would ' +
+        'read the same environment variable namespace, so a key added to the public schema can resolve to ' +
+        'a server-only value and be serialized into the browser. Give one of them a prefix the other does not use.'
+    )
   })
 
   it('rejects a server claim on a namespace the public side already took', () => {
@@ -62,11 +83,45 @@ describe('claimConfigNamespace', () => {
     expect(claimConfigNamespace(namespace('public', 'PUBLIC'))).toBeNull()
   })
 
+  it('treats an absent prefix as disjoint even from a name that would nest under empty-string-plus-separator', () => {
+    // '__PUBLIC' starts with '' + '__', so a claim's own prefix being '' must short-circuit to
+    // "disjoint" before the nesting check below ever runs, or this would wrongly look nested.
+    claimConfigNamespace(namespace('server'))
+
+    expect(claimConfigNamespace(namespace('public', '__PUBLIC'))).toBeNull()
+  })
+
+  it('treats a named prefix as disjoint from an absent one on the other side too', () => {
+    // Mirrors the case above with the empty prefix on the *other* argument, so both sides of the
+    // disjointness check are independently exercised.
+    claimConfigNamespace(namespace('server', '__APP'))
+
+    expect(claimConfigNamespace(namespace('public'))).toBeNull()
+  })
+
   it('allows any number of same-kind claims on one namespace', () => {
     expect(claimConfigNamespace(namespace('server', 'APP'))).toBeNull()
     expect(claimConfigNamespace(namespace('server', 'APP'))).toBeNull()
     expect(claimConfigNamespace(namespace('public', 'PUBLIC'))).toBeNull()
     expect(claimConfigNamespace(namespace('public', 'PUBLIC'))).toBeNull()
+  })
+
+  it('does not grow the registry when the exact same claim is registered repeatedly', () => {
+    claimConfigNamespace(namespace('server', 'APP'))
+    claimConfigNamespace(namespace('server', 'APP'))
+    claimConfigNamespace(namespace('server', 'APP'))
+
+    expect(configNamespaceCount()).toBe(1)
+  })
+
+  it('tracks separate same-kind claims independently by prefix, not just by kind', () => {
+    claimConfigNamespace(namespace('server', 'APP'))
+    claimConfigNamespace(namespace('server', 'OTHER'))
+
+    expect(configNamespaceCount()).toBe(2)
+    // If the second claim had been wrongly treated as a duplicate of the first (e.g. by ignoring
+    // prefix), it would never have been recorded, and this would come back null instead.
+    expect(claimConfigNamespace(namespace('public', 'OTHER'))).toContain('same environment variable namespace')
   })
 
   it('still reports a conflict after a namespace was claimed repeatedly', () => {

@@ -66,6 +66,50 @@ describe('runProxyIfPathMatches', () => {
   })
 })
 
+describe('DEFAULT_EXEMPT_PATTERNS', () => {
+  async function isExempt(pathname: string): Promise<boolean> {
+    const handler = vi.fn().mockResolvedValue(NextResponse.next())
+    const wrapped = runProxyIfPathMatches(/.*/)(handler)
+
+    await wrapped(new NextRequest(`https://example.com${pathname}`))
+
+    return handler.mock.calls.length === 0
+  }
+
+  // Each exact filename is checked both with a leading prefix (would wrongly match without the
+  // `^` anchor) and a trailing suffix (would wrongly match without the `$` anchor), alongside the
+  // exact path it must still exempt.
+  it.each([
+    ['/_next/static/chunk.js', true],
+    ['/api/_next', false],
+    ['/.well-known/security.txt', true],
+    ['/api/.well-known', false],
+    ['/apple-icon.png', true],
+    ['/evil/apple-icon.png', false],
+    ['/apple-icon.png.evil', false],
+    ['/favicon.ico', true],
+    ['/evil/favicon.ico', false],
+    ['/favicon.ico.evil', false],
+    ['/icon.png', true],
+    ['/evil/icon.png', false],
+    ['/icon.png.evil', false],
+    ['/icon.svg', true],
+    ['/evil/icon.svg', false],
+    ['/icon.svg.evil', false],
+    ['/manifest.json', true],
+    ['/evil/manifest.json', false],
+    ['/manifest.json.evil', false],
+    ['/robots.txt', true],
+    ['/evil/robots.txt', false],
+    ['/robots.txt.evil', false],
+    ['/sitemap.xml', true],
+    ['/evil/sitemap.xml', false],
+    ['/sitemap.xml.evil', false],
+  ])('%s is exempt by default: %s', async (pathname, expected) => {
+    expect(await isExempt(pathname)).toBe(expected)
+  })
+})
+
 describe('runMiddlewareIfPathMatches', () => {
   it('is the same function as runProxyIfPathMatches, kept as a naming-compatibility alias', () => {
     expect(runMiddlewareIfPathMatches).toBe(runProxyIfPathMatches)

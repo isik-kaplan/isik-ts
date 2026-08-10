@@ -109,6 +109,9 @@ function rgbToHsl({ r, g, b }: Rgb): { h: number; s: number; l: number } {
   }
 
   const delta = max - min
+  // Stryker disable next-line EqualityOperator: equivalent mutant. l === 0.5 iff max + min === 1,
+  // in which case 2 - max - min === max + min too, so both branches compute the same value and
+  // no test can ever distinguish `>` from `>=` here.
   const s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min)
 
   let h: number

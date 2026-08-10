@@ -51,6 +51,20 @@ describe('getRequestOrigin', () => {
     expect(getRequestOrigin(new Headers({ host: '127.0.0.1:3000' }))).toBe('http://127.0.0.1:3000')
   })
 
+  it('treats the port as optional for known local-dev hosts', () => {
+    expect(getRequestOrigin(new Headers({ host: 'localhost' }))).toBe('http://localhost')
+    expect(getRequestOrigin(new Headers({ host: '127.0.0.1' }))).toBe('http://127.0.0.1')
+  })
+
+  it('does not match a host that merely contains a local-dev hostname as a substring', () => {
+    // Exercises both anchors on each pattern: a prefix before "localhost"/"127.0.0.1" defeats
+    // `^`, and a suffix after the optional port defeats `$`.
+    expect(getRequestOrigin(new Headers({ host: 'notlocalhost:3000' }))).toBe('https://notlocalhost:3000')
+    expect(getRequestOrigin(new Headers({ host: 'localhost.evil.com:3000' }))).toBe('https://localhost.evil.com:3000')
+    expect(getRequestOrigin(new Headers({ host: 'not127.0.0.1:3000' }))).toBe('https://not127.0.0.1:3000')
+    expect(getRequestOrigin(new Headers({ host: '127.0.0.1.evil.com:3000' }))).toBe('https://127.0.0.1.evil.com:3000')
+  })
+
   it('accepts a custom isLocalDevHost predicate', () => {
     const headers = new Headers({ host: 'app.internal.test' })
     expect(getRequestOrigin(headers, { isLocalDevHost: (host) => host.endsWith('.internal.test') })).toBe(

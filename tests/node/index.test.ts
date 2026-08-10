@@ -29,6 +29,14 @@ describe('getFileAsString', () => {
     expect(result).toMatch(/^Error reading file: /)
   })
 
+  it('logs the filename alongside the raw error', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await getFileAsString('missing.txt')
+
+    expect(consoleError).toHaveBeenCalledWith('Error reading file missing.txt:', expect.anything())
+  })
+
   it('stringifies non-Error throws instead of reading .message', async () => {
     vi.spyOn(fs, 'readFile').mockRejectedValueOnce('a plain string rejection')
 

@@ -45,6 +45,16 @@ describe('getCookie', () => {
 
     cookieGetter.mockRestore()
   })
+
+  it('skips a malformed cookie entry that has no "=" separator instead of misreading it', () => {
+    // Without the separator, slice(0, -1) drops the entry's last character and slice(0) returns
+    // it whole - chosen so a buggy "don't skip" path would wrongly match name 'a' against it.
+    const cookieGetter = vi.spyOn(document, 'cookie', 'get').mockReturnValue('ab')
+
+    expect(getCookie('a')).toBeUndefined()
+
+    cookieGetter.mockRestore()
+  })
 })
 
 describe('setCookie', () => {
@@ -63,6 +73,20 @@ describe('setCookie', () => {
     setCookie('theme', 'dark', { days: 7 })
     expect(cookieSetter).toHaveBeenCalledWith(expect.stringMatching(/^theme=dark; expires=.+; path=\/$/))
     cookieSetter.mockRestore()
+  })
+
+  it('computes the expiry as exactly days * 86,400,000ms from now', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2024-01-01T00:00:00.000Z'))
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+
+    setCookie('theme', 'dark', { days: 7 })
+
+    const expected = new Date(Date.parse('2024-01-01T00:00:00.000Z') + 7 * 86_400_000).toUTCString()
+    expect(cookieSetter).toHaveBeenCalledWith(`theme=dark; expires=${expected}; path=/`)
+
+    cookieSetter.mockRestore()
+    vi.useRealTimers()
   })
 
   it('uses a custom path when provided', () => {
@@ -88,6 +112,13 @@ describe('removeCookie', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     removeCookie('session', '/app')
     expect(cookieSetter).toHaveBeenCalledWith('session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/app')
+    cookieSetter.mockRestore()
+  })
+
+  it('uses the root path by default', () => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    removeCookie('session')
+    expect(cookieSetter).toHaveBeenCalledWith('session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/')
     cookieSetter.mockRestore()
   })
 })

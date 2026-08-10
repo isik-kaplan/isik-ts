@@ -114,6 +114,21 @@ describe('safeFileName', () => {
     expect(result.length).toBe(10)
   })
 
+  it('treats a leading dot (dotfile) as pure name too, not an extension covering the whole name', () => {
+    // dotIndex is 0 here, not merely absent (-1) - a `> 0` check must exclude it explicitly
+    // rather than just excluding "no dot at all", or the entire filename gets treated as an
+    // untruncated "extension" and the maxLength budget is never enforced.
+    const result = safeFileName('.' + 'a'.repeat(300), 10)
+    expect(result.length).toBe(10)
+  })
+
+  it('leaves an already-short filename completely untouched, without re-escaping it', () => {
+    // Long enough that the early return is the *only* thing that can produce this exact string -
+    // any pass through the truncate/re-escape logic below would replace the '?' even though the
+    // result still fits, since that logic doesn't know the input was already left alone.
+    expect(safeFileName('a?.png', 6)).toBe('a?.png')
+  })
+
   test.prop([fc.string({ minLength: 1, maxLength: 500 }), fc.integer({ min: 10, max: 30 })])(
     'never exceeds maxLength when the extension is short relative to it',
     (name, maxLength) => {
@@ -224,6 +239,25 @@ describe('fileToBase64', () => {
       await expect(fileToBase64(file)).rejects.toThrow('Failed to get canvas context')
     })
 
+    it('requests a 2d rendering context', async () => {
+      const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        drawImage: vi.fn(),
+      } as unknown as CanvasRenderingContext2D)
+      const file = new File(['fake-image-bytes'], 'photo.png', { type: 'image/png' })
+
+      await fileToBase64(file)
+
+      expect(getContextSpy).toHaveBeenCalledWith('2d')
+    })
+
+    it('revokes the object URL created for the image after use', async () => {
+      const file = new File(['fake-image-bytes'], 'photo.png', { type: 'image/png' })
+
+      await fileToBase64(file)
+
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock')
+    })
+
     it('rejects when the image fails to load', async () => {
       vi.stubGlobal('Image', createMockImage(false))
 
@@ -265,6 +299,55 @@ describe('downloadAndFormatImage', () => {
     expect(clickSpy).toHaveBeenCalledOnce()
   })
 
+  it('defaults the download filename to image.png when name is omitted', async () => {
+    const downloadSetSpy = vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set')
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    await downloadAndFormatImage('https://example.com/photo.png')
+
+    expect(downloadSetSpy).toHaveBeenCalledWith('image.png')
+  })
+
+  it('marks the image as cross-origin before loading it, so a tainted canvas cannot silently fail toBlob', async () => {
+    const instances: Array<{ crossOrigin?: string }> = []
+    vi.stubGlobal(
+      'Image',
+      class extends createMockImage() {
+        constructor() {
+          super()
+          instances.push(this)
+        }
+      }
+    )
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    await downloadAndFormatImage('https://example.com/photo.png', 'photo.png')
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].crossOrigin).toBe('anonymous')
+  })
+
+  it('cleans up the link element and the object URL after a successful download', async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const removeChildSpy = vi.spyOn(document.body, 'removeChild')
+
+    await downloadAndFormatImage('https://example.com/photo.png', 'photo.png')
+
+    expect(removeChildSpy).toHaveBeenCalledOnce()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock')
+  })
+
+  it('requests a 2d rendering context', async () => {
+    const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    await downloadAndFormatImage('https://example.com/photo.png', 'photo.png')
+
+    expect(getContextSpy).toHaveBeenCalledWith('2d')
+  })
+
   it('defaults the re-encoded mime type to match the output filename, not the source URL', async () => {
     const toBlobSpy = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
       this: HTMLCanvasElement,
@@ -286,7 +369,7 @@ describe('downloadAndFormatImage', () => {
 
     await downloadAndFormatImage('https://example.com/photo.png', 'photo.png')
 
-    expect(errorSpy).toHaveBeenCalledWith('Failed to download image:', expect.any(Error))
+    expect(errorSpy).toHaveBeenCalledWith('Failed to download image:', new Error('Could not get canvas context'))
   })
 
   it('logs instead of throwing when blob generation fails, even with a genuinely async callback', async () => {
@@ -297,6 +380,6 @@ describe('downloadAndFormatImage', () => {
 
     await expect(downloadAndFormatImage('https://example.com/photo.png', 'photo.png')).resolves.toBeUndefined()
 
-    expect(errorSpy).toHaveBeenCalledWith('Failed to download image:', expect.any(Error))
+    expect(errorSpy).toHaveBeenCalledWith('Failed to download image:', new Error('Could not generate blob'))
   })
 })

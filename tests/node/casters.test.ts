@@ -63,6 +63,7 @@ describe('integer', () => {
     expect(() => integer()('12.5')).toThrow()
     expect(() => integer()('')).toThrow()
     expect(() => integer()('   ')).toThrow()
+    expect(() => integer()('abc')).toThrow('Value "abc" can not be parsed into an integer.')
   })
 
   test.prop([fc.integer()])('round-trips any integer through its own string form', (n) => {
@@ -80,6 +81,7 @@ describe('float', () => {
     expect(() => float()('abc')).toThrow()
     expect(() => float()('')).toThrow()
     expect(() => float()('   ')).toThrow()
+    expect(() => float()('abc')).toThrow('Value "abc" can not be parsed into a float.')
   })
 
   test.prop([fc.float({ noNaN: true })])('round-trips any float through its own string form', (n) => {
@@ -100,6 +102,7 @@ describe('boolean', () => {
   it('throws on anything else', () => {
     expect(() => boolean()('yes')).toThrow()
     expect(() => boolean()('')).toThrow()
+    expect(() => boolean()('yes')).toThrow('Value "yes" can not be parsed into a boolean.')
   })
 })
 

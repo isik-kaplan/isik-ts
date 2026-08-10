@@ -36,6 +36,14 @@ describe('withAttributes', () => {
     expect(Object.prototype.hasOwnProperty.call(fn, '__proto__')).toBe(true)
     expect(({} as Record<string, unknown>).evil).toBeUndefined()
   })
+
+  it('defines attributes as writable, configurable, and enumerable', () => {
+    const fn = withAttributes(function () {}, { foo: 'bar' })
+
+    const descriptor = Object.getOwnPropertyDescriptor(fn, 'foo')
+
+    expect(descriptor).toMatchObject({ writable: true, configurable: true, enumerable: true })
+  })
 })
 
 describe('makeCallable', () => {
@@ -109,6 +117,16 @@ describe('suppress', () => {
         throw new TypeError('nope')
       })
     ).toThrow(TypeError)
+  })
+
+  it('suppresses when the error matches only one of several listed exception types', () => {
+    // A multi-entry list where the thrown error matches just one entry: distinguishes checking
+    // whether *some* type matches (correct) from requiring *every* listed type to match.
+    expect(
+      suppress([CustomError, TypeError], () => {
+        throw new CustomError()
+      })
+    ).toBeUndefined()
   })
 })
 

@@ -65,3 +65,26 @@ jobs:
       # packs the package itself, so no separate build step here. See tests-integration/README.md.
       - name: Run integration tests
         run: npm run test:integration
+
+  mutation:
+    name: mutation testing
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Its own job rather than a step in the matrix above: it reruns the whole suite once per
+      # mutant, so it runs in minutes against the unit suite's ~2s and there is nothing to learn
+      # from repeating it across three Node versions. Fails the build if the score drops below
+      # stryker.config.json's `thresholds.break`.
+      - name: Run mutation tests
+        run: npm run test:mutation

@@ -131,6 +131,9 @@ describe('publicConfig (server)', () => {
     claimConfigNamespace({ kind: 'server', prefix: '', sep: '__' })
 
     expect(() => publicConfig({ API_URL: string() }, { globalKey: KEY })).toThrow(ConfigError)
+    // Confirms this call site claims the namespace as kind 'public' specifically - claiming under
+    // any other/no kind would still conflict, but would misname the caller in the message below.
+    expect(() => publicConfig({ API_URL: string() }, { globalKey: KEY })).toThrow(/publicConfig\(\) was called with/)
   })
 
   it('injects under exactly the key it was given, and nothing else', async () => {
@@ -261,6 +264,7 @@ describe('publicConfig (browser)', () => {
 
     expect(() => CONFIG.API_URL).toThrow(ConfigError)
     expect(() => CONFIG.API_URL).toThrow(/Render <PublicConfigScript \/> once in your root layout/)
+    expect(() => CONFIG.API_URL).toThrow(/non-Next renderer, assign the object yourself before anything reads/)
   })
 
   it('renders no script - injection already happened on the server', () => {
@@ -362,7 +366,11 @@ describe('requireGlobalKey', () => {
 
   it('rejects a missing key rather than deriving one', () => {
     expect(() => requireGlobalKey({} as PublicConfigOptions)).toThrow(ConfigError)
-    expect(() => requireGlobalKey({} as PublicConfigOptions)).toThrow(/globalKey is required/)
+    expect(() => requireGlobalKey({} as PublicConfigOptions)).toThrow(
+      'publicConfig: globalKey is required and must be a non-empty string - it names the window ' +
+        'property the config is injected under, e.g. { globalKey: "__MY_APP_CONFIG__" }. There is no ' +
+        'default, so the name is yours and two configs cannot collide on one neither of them chose.'
+    )
   })
 
   it('rejects an empty key, and a non-string one from an untyped caller', () => {

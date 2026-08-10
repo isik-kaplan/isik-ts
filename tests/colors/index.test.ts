@@ -20,6 +20,25 @@ describe('generateTailwindColorScale', () => {
     expect(scale[500]).toBe('#ffffff')
   })
 
+  it('expands each shorthand digit independently, not by repeating the whole string', () => {
+    const scale = generateTailwindColorScale('#3af')
+    expect(scale[500]).toBe('#33aaff')
+  })
+
+  it('trims surrounding whitespace before validating', () => {
+    const scale = generateTailwindColorScale('  #3b82f6  ')
+    expect(scale[500]).toBe('#3b82f6')
+  })
+
+  it('pads single-digit channels to two hex digits', () => {
+    const scale = generateTailwindColorScale('#010101')
+    expect(scale[500]).toBe('#010101')
+  })
+
+  it('requires the whole string to be a hex color, not just a trailing match', () => {
+    expect(() => generateTailwindColorScale('zz3b82f6')).toThrow('Invalid hex color')
+  })
+
   it('throws on invalid hex input', () => {
     expect(() => generateTailwindColorScale('not-a-color')).toThrow('Invalid hex color')
     expect(() => generateTailwindColorScale('#ff')).toThrow('Invalid hex color')
@@ -43,6 +62,16 @@ describe('generateTailwindColorScale', () => {
     expect(toRgbSum(scale[400])).toBeGreaterThan(toRgbSum(scale[500]))
     expect(toRgbSum(scale[500])).toBeGreaterThan(toRgbSum(scale[600]))
     expect(toRgbSum(scale[600])).toBeGreaterThan(toRgbSum(scale[950]))
+  })
+
+  it('mixes each of r, g, and b towards white/black independently, not just in aggregate', () => {
+    const scale = generateTailwindColorScale('#112233')
+    const channelAt = (hex: string, offset: number) => parseInt(hex.slice(offset, offset + 2), 16)
+
+    for (const offset of [1, 3, 5]) {
+      expect(channelAt(scale[50], offset)).toBeGreaterThan(channelAt(scale[500], offset))
+      expect(channelAt(scale[500], offset)).toBeGreaterThan(channelAt(scale[950], offset))
+    }
   })
 
   test.prop([fc.integer({ min: 0, max: 0xffffff })])('always returns valid 6-digit hex codes', (int) => {
@@ -107,6 +136,11 @@ describe('hexToHslTriplet', () => {
 
   it('takes the l > 0.5 branch for light colors', () => {
     expect(hexToHslTriplet('#add8e6')).toBe('194.7 53.3% 79%')
+  })
+
+  it('picks the 0-6 wraparound branch by strict inequality when green equals blue', () => {
+    // r is max, g === b: (gN - bN) is 0 either way, so only the ternary's strictness shows up.
+    expect(hexToHslTriplet('#ff8080')).toBe('0 100% 75.1%')
   })
 
   it('respects a custom precision', () => {

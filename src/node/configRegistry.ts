@@ -25,6 +25,10 @@ export interface ConfigNamespace {
   sep: string
 }
 
+// Stryker disable next-line StringLiteral: equivalent as far as this module's own behavior goes -
+// any distinct key works identically for read/write here. The specific, namespaced string only
+// matters for avoiding a collision with unrelated code that also stashes state on `globalThis`
+// via `Symbol.for`, which isn't something a test *of this module* can observe or verify.
 const REGISTRY_KEY = Symbol.for('@isikk/core/config-namespace-registry')
 
 const CALL_NAME: Record<ConfigKind, string> = {
@@ -68,6 +72,17 @@ function describeNamespace(namespace: ConfigNamespace): string {
   return namespace.prefix === '' ? 'no prefix' : `prefix ${JSON.stringify(namespace.prefix)}`
 }
 
+function sameNamespace(a: ConfigNamespace, b: ConfigNamespace): boolean {
+  // Stryker disable next-line ConditionalExpression: equivalent mutant on the `kind` comparison
+  // specifically. Every caller of this function only ever compares entries the earlier conflict
+  // check in claimConfigNamespace has already let through - and that check has already returned
+  // for any existing entry of a *different* kind whose prefix overlaps claim's, and an equal
+  // prefix always overlaps (namespacesOverlap's first check) - so an existing entry with a
+  // matching prefix reaching here is guaranteed to already be the same kind. Checking `kind`
+  // again can't change it.
+  return a.kind === b.kind && a.prefix === b.prefix && a.sep === b.sep
+}
+
 /**
  * Records `claim`, returning `null` when it is allowed or an explanatory message when it overlaps
  * a namespace already claimed by the other kind. Returns the message instead of throwing so each
@@ -89,9 +104,7 @@ export function claimConfigNamespace(claim: ConfigNamespace): string | null {
     }
   }
 
-  const alreadyClaimed = registry.some(
-    (existing) => existing.kind === claim.kind && existing.prefix === claim.prefix && existing.sep === claim.sep
-  )
+  const alreadyClaimed = registry.some((existing) => sameNamespace(existing, claim))
   if (!alreadyClaimed) {
     registry.push(claim)
   }
@@ -102,4 +115,24 @@ export function claimConfigNamespace(claim: ConfigNamespace): string | null {
 /** Test-only reset. Deliberately not re-exported from any of the package's public entry points. */
 export function resetConfigNamespaces(): void {
   getRegistry().length = 0
+}
+
+/**
+ * Test-only: number of currently-registered claims, so the growth-prevention in
+ * `claimConfigNamespace` (a repeated identical claim - e.g. from Next Fast Refresh re-evaluating
+ * the same `config()` call - must not grow the registry) is verifiable without exposing the
+ * registry's contents. Deliberately not re-exported from any of the package's public entry points.
+ */
+export function configNamespaceCount(): number {
+  return getRegistry().length
+}
+
+/**
+ * Test-only: removes the registry from `globalThis` entirely, so the next call that touches it
+ * re-creates it from scratch - lets a test observe the freshly-created registry's initial value
+ * without duplicating the `Symbol.for` key string. Deliberately not re-exported from any of the
+ * package's public entry points.
+ */
+export function deleteConfigNamespaceRegistry(): void {
+  delete (globalThis as unknown as Record<symbol, unknown>)[REGISTRY_KEY]
 }
