@@ -1,14 +1,26 @@
 import { act, render, renderHook } from '@testing-library/react'
 
 import type { ChangeEvent } from 'react'
+import { useEffect } from 'react'
 
 import { describe, expect, it, vi } from 'vitest'
 
 import { useEffectAfterMount, useElementAttributes, useFileDragDrop, useFilePaste, useFormState } from '../../src/hooks'
 
 describe('useElementAttributes', () => {
-  function TestComponent({ attributeKeys }: { attributeKeys: Array<keyof HTMLInputElement> }) {
+  function TestComponent({
+    attributeKeys,
+    onCommit,
+  }: {
+    attributeKeys: Array<keyof HTMLInputElement>
+    onCommit?: () => void
+  }) {
     const { ref, attributeValues } = useElementAttributes<HTMLInputElement, keyof HTMLInputElement>(attributeKeys)
+    // No deps: runs after every commit, and only after a commit. Counting render calls instead would
+    // be wrong - React may call the component once more before bailing out of an unchanged state.
+    useEffect(() => {
+      onCommit?.()
+    })
     return (
       <div>
         <input ref={ref} disabled value="" readOnly />
@@ -28,14 +40,17 @@ describe('useElementAttributes', () => {
   })
 
   it('does not re-render when a resize fires but the attribute value has not changed', () => {
-    const { getByTestId } = render(<TestComponent attributeKeys={['disabled']} />)
+    const onCommit = vi.fn()
+    const { getByTestId } = render(<TestComponent attributeKeys={['disabled']} onCommit={onCommit} />)
     expect(getByTestId('value').textContent).toBe('true')
+    const commitsAfterMount = onCommit.mock.calls.length
 
     act(() => {
       window.dispatchEvent(new Event('resize'))
     })
 
     expect(getByTestId('value').textContent).toBe('true')
+    expect(onCommit).toHaveBeenCalledTimes(commitsAfterMount)
   })
 
   it('cleans up the resize listener and observer on unmount', () => {
