@@ -20,6 +20,3 @@ fixtures/**/next-env.d.ts
 # IDEs & Editors
 .idea
 .DS_Store
-
-# Project Specific
-TODO.md
