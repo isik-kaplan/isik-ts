@@ -24,6 +24,11 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useEffectAfterMount`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
+## Django REST framework (`@isikk/core/drf`)
+
+- [drf.md](drf.md) - `toFormErrors`, `detailOf`, `messagesOf`: readers for DRF's two error shapes
+  (peer: none, pure functions)
+
 ## Node (`@isikk/core/node`)
 
 - [node.md](node.md) - `getFileAsString`, `contextLocal`, `config` + casters (peer: none, Node

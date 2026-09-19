@@ -38,6 +38,11 @@
       "import": "./dist/hooks/index.js",
       "require": "./dist/hooks/index.cjs"
     },
+    "./drf": {
+      "types": "./dist/drf/index.d.ts",
+      "import": "./dist/drf/index.js",
+      "require": "./dist/drf/index.cjs"
+    },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js",
