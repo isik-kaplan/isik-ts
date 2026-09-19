@@ -1,8 +1,6 @@
 /**
- * Validates that `next` is safe to pass to `redirect()` as a post-auth (or similar) redirect
- * target: a same-origin relative path. Rejects anything that isn't a string, doesn't start with
- * `/`, or starts with `//` (protocol-relative, i.e. an off-site redirect) - falling back to
- * `fallback` otherwise, so callers always get a definite path back.
+ * Only a same-origin relative path passes: `//host` is protocol-relative and would send the
+ * visitor off-site, so a `next` query param can't be turned into an open redirect.
  */
 export function getSafeRedirect(next: unknown, fallback: string = '/'): string {
   if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//')) {
