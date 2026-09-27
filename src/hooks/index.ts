@@ -1,6 +1,8 @@
 import type { ChangeEvent, DependencyList, DragEvent, EffectCallback } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { type FormErrors, detailOf, messagesOf, toFormErrors } from '../drf'
+
 export function useElementAttributes<T extends HTMLElement, K extends keyof T>(attributeKeys: K[]) {
   const ref = useRef<T | null>(null)
   const [attributeValues, setAttributeValue] = useState<Partial<Pick<T, K>>>({})
@@ -124,6 +126,33 @@ export function useEffectAfterMount(effect: EffectCallback, deps: DependencyList
     return effect()
   }, deps)
 }
+
+/**
+ * Whether the calling component is still mounted, read at the moment of asking - for an effect whose
+ * work outlives the component, such as a fetch that resolves after the screen was left.
+ *
+ * A function rather than a boolean, because a boolean would be the value from the render that
+ * started the work, not the one that finishes it. It reads false during the first render, before
+ * React has committed anything.
+ *
+ * No DOM in it, so it works the same in React Native.
+ */
+export function useIsMounted(): () => boolean {
+  const mounted = useRef(false)
+
+  // Both dependency lists are equivalent mutants: a fixed literal compares equal to itself every
+  // render, so any constant list reruns the effect and keeps the callback exactly as the empty one.
+  // Stryker disable ArrayDeclaration
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  return useCallback(() => mounted.current, [])
+}
+// Stryker restore ArrayDeclaration
 
 export function useFilePaste({
   acceptedTypes,
@@ -431,4 +460,193 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
     files: state.files,
     reset,
   }
+}
+
+/**
+ * Where a submit puts what it has to say to a person. sonner's `toast` already has this shape and can
+ * be passed as it is; a library cannot pick the toast for the app.
+ */
+export type Reporter = {
+  success: (message: string) => unknown
+  error: (message: string) => unknown
+}
+
+/** What a typed client returns - openapi-fetch's result, with the status and not only the body. */
+export type ApiResult = { data?: unknown; error?: unknown; response?: Response }
+
+export type ApiSubmitOptions<R extends ApiResult> = {
+  // Default: no error, and a response that is `ok` if there is one. Override for an endpoint whose
+  // success arrives as a non-2xx - allauth answers an already-logged-in visitor with a 409.
+  isSuccess?: (result: R) => boolean
+  // Silence on success is the default - a form that visibly saved does not need telling. Pass one
+  // only where the change happens somewhere the person is not looking.
+  success?: string
+  failure: string
+  // Where a 400's field errors go. Given one, they render beside the inputs that caused them and
+  // nothing is reported; without one they are reported as one line, which is what a button with no
+  // form behind it wants. Only ever called with errors there are.
+  setFormErrors?: (errors: FormErrors) => void
+  onSuccess?: (result: R) => void
+}
+
+function succeeded(result: ApiResult): boolean {
+  return !result.error && (result.response === undefined || result.response.ok)
+}
+
+/**
+ * The tail every write shares: a submitting flag, the call, and the server's refusal put where a
+ * person can read it.
+ *
+ * Refusals are read as Django REST framework writes them - see `@isikk/core/drf`. Anything that does
+ * not match falls back to `failure`, so another server's errors read as a plain failure, not as none.
+ *
+ * Refreshing or navigating after success stays at the call site, through `onSuccess`. Reaching for a
+ * router here would make every caller a router consumer, including the ones that render their own
+ * result.
+ */
+export function useApiSubmit(reporter: Reporter) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  async function submit<R extends ApiResult>(call: () => Promise<R>, options: ApiSubmitOptions<R>): Promise<boolean> {
+    setIsSubmitting(true)
+    let result: R
+    try {
+      result = await call()
+    } finally {
+      // A call that throws is the caller's to handle, but it must not leave the form locked.
+      setIsSubmitting(false)
+    }
+
+    if ((options.isSuccess ?? succeeded)(result)) {
+      if (options.success) reporter.success(options.success)
+      options.onSuccess?.(result)
+      return true
+    }
+
+    const status = result.response?.status
+    const fields = status === 400 ? toFormErrors(result.error) : undefined
+    if (fields && options.setFormErrors) {
+      options.setFormErrors(fields)
+      return false
+    }
+
+    // A 5xx says nothing worth reading and often is not JSON at all, so only a refusal DRF wrote for
+    // a person is shown in its own words. Never reaching the server at all reads the same way.
+    const detail = status === undefined || status >= 500 ? undefined : detailOf(result.error)
+    reporter.error(detail ?? messagesOf(fields) ?? options.failure)
+    return false
+  }
+
+  return { isSubmitting, submit }
+}
+
+type StandardIssue = {
+  readonly message: string
+  readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined
+}
+
+type StandardResult<Output> =
+  { readonly value: Output; readonly issues?: undefined } | { readonly issues: ReadonlyArray<StandardIssue> }
+
+/**
+ * The part of the Standard Schema interface (https://standardschema.dev) this library reads. zod,
+ * valibot and ArkType all implement it, so none of them is a dependency here.
+ */
+export type StandardSchemaV1<Input = unknown, Output = Input> = {
+  readonly '~standard': {
+    readonly version: 1
+    readonly vendor: string
+    readonly validate: (value: unknown) => StandardResult<Output> | Promise<StandardResult<Output>>
+    readonly types?: { readonly input: Input; readonly output: Output } | undefined
+  }
+}
+
+type InputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['input']
+type OutputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['output']
+
+// An issue is filed under the field its path starts at, as zod's own `flatten` does, and one with no
+// path is about the form as a whole. Built through entries so a field named `__proto__` is a field.
+function fromIssues(issues: ReadonlyArray<StandardIssue>): FormErrors {
+  const errors = new Map<string, string[]>()
+  for (const { message, path } of issues) {
+    const [segment] = path ?? []
+    const field =
+      segment === undefined ? 'non_field_errors' : String(typeof segment === 'object' ? segment.key : segment)
+    errors.set(field, [...(errors.get(field) ?? []), message])
+  }
+  return Object.fromEntries(errors)
+}
+
+/**
+ * Form state, validation, and the submit tail, as one object.
+ *
+ * The submit half is `useApiSubmit`, composed rather than reimplemented, because half the writes in
+ * a real app are a button or a switch with no form behind them, and those use it directly. Composing
+ * is what puts the server's 400 field errors into the same `formErrors` the schema writes to, so a
+ * refusal from either side renders in the same place.
+ *
+ * `validate` needs a synchronous schema, which every zod and valibot schema without an async
+ * refinement is. `submit` is async regardless, so it accepts either.
+ */
+export function useValidatedFormState<S extends StandardSchemaV1<object>>(
+  schema: S,
+  initialState: InputOf<S>,
+  reporter: Reporter
+) {
+  const form = useFormState<InputOf<S>>(initialState)
+  const { isSubmitting, submit: submitToApi } = useApiSubmit(reporter)
+  // Typed against this call's concrete S, which a generic S cannot be checked against here - the
+  // shape, a list of messages per field plus non_field_errors, is the same.
+  const setFormErrors = form.setFormErrors as (errors: FormErrors | undefined) => void
+
+  function record(result: StandardResult<OutputOf<S>>): StandardResult<OutputOf<S>> {
+    setFormErrors(result.issues ? fromIssues(result.issues) : undefined)
+    return result
+  }
+
+  /**
+   * Synchronous on purpose. An async one would return a Promise, which is always truthy, so a caller
+   * writing `if (!validate()) return` would let every form through - and TypeScript does not flag
+   * the negated form. A schema that answers asynchronously is refused loudly rather than guessed at.
+   */
+  function validate(): boolean {
+    const result = schema['~standard'].validate(form.formState)
+    // A thenable rather than `instanceof Promise`, which misses one made in another realm.
+    if (typeof (result as Partial<PromiseLike<unknown>>).then === 'function') {
+      throw new TypeError('useValidatedFormState: validate() needs a synchronous schema - submit() awaits an async one')
+    }
+    return !record(result as StandardResult<OutputOf<S>>).issues
+  }
+
+  /**
+   * A server error naming a field this form does not hold has nowhere to render, and dropping it
+   * loses the only thing the server said. Those join `non_field_errors`, which every form shows.
+   */
+  function acceptServerErrors(errors: FormErrors) {
+    const { non_field_errors: nonField = [], ...fields } = errors
+    const routed: Array<[string, string[]]> = []
+    const orphaned: string[] = []
+    for (const [field, messages] of Object.entries(fields)) {
+      if (Object.prototype.hasOwnProperty.call(form.formState, field)) routed.push([field, messages])
+      else orphaned.push(...messages)
+    }
+    const formWide = [...nonField, ...orphaned]
+    if (formWide.length > 0) routed.push(['non_field_errors', formWide])
+    setFormErrors(Object.fromEntries(routed))
+  }
+
+  /**
+   * Validates first, so a form never spends a round trip on something it could refuse itself, and
+   * hands the call the schema's output rather than the raw state, so a transform is not lost.
+   */
+  async function submit<R extends ApiResult>(
+    call: (value: OutputOf<S>) => Promise<R>,
+    options: Omit<ApiSubmitOptions<R>, 'setFormErrors'>
+  ): Promise<boolean> {
+    const result = record(await schema['~standard'].validate(form.formState))
+    if (result.issues) return false
+    return submitToApi(() => call(result.value), { ...options, setFormErrors: acceptServerErrors })
+  }
+
+  return { ...form, validate, isSubmitting, submit }
 }

@@ -13,7 +13,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
   `suppress`, `preventDefault`, `isPathMatched`, `raises`, `cloned`, `enabledIf`, `transformExceptions`
 - [objects.md](objects.md) - `checkRequiredKeys`, `requireExclusiveKeys`, `setKeyValueToObjectIfValue`
 - [strings.md](strings.md) - `slugify`
-- [dates.md](dates.md) - `formattedDate` and friends, built on `date-fns`
+- [dates.md](dates.md) - `formattedDate` and friends, built on `date-fns`, and `toDate`
 - [files.md](files.md) - browser file/image helpers (MIME guessing, canvas re-encoding, base64)
 - [cookies.md](cookies.md) - `getCookie`, `setCookie`, `removeCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
@@ -21,8 +21,9 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 ## React (`@isikk/core/hooks`)
 
-- [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useEffectAfterMount`,
-  `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
+- [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`,
+  `useApiSubmit`, `useEffectAfterMount`, `useIsMounted`, `useFilePaste`, `useFileDragDrop` (peer
+  dep: `react`)
 
 ## Django REST framework (`@isikk/core/drf`)
 

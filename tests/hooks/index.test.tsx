@@ -5,7 +5,14 @@ import { useEffect } from 'react'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { useEffectAfterMount, useElementAttributes, useFileDragDrop, useFilePaste, useFormState } from '../../src/hooks'
+import {
+  useEffectAfterMount,
+  useElementAttributes,
+  useFileDragDrop,
+  useFilePaste,
+  useFormState,
+  useIsMounted,
+} from '../../src/hooks'
 
 describe('useElementAttributes', () => {
   function TestComponent({
@@ -243,6 +250,45 @@ describe('useEffectAfterMount', () => {
     const { rerender } = renderHook(({ dep }) => useEffectAfterMount(effect, [dep]), { initialProps: { dep: 1 } })
     rerender({ dep: 1 })
     expect(effect).not.toHaveBeenCalled()
+  })
+})
+
+describe('useIsMounted', () => {
+  it('reads true while mounted and false once unmounted', () => {
+    const { result, unmount } = renderHook(() => useIsMounted())
+    expect(result.current()).toBe(true)
+    unmount()
+    expect(result.current()).toBe(false)
+  })
+
+  // Nothing has been committed yet, so work started from the first render must not believe it has.
+  it('reads false during the first render', () => {
+    const seen: boolean[] = []
+    function Probe() {
+      const isMounted = useIsMounted()
+      seen.push(isMounted())
+      return null
+    }
+    render(<Probe />)
+    expect(seen[0]).toBe(false)
+  })
+
+  it('returns the same function across re-renders', () => {
+    const { result, rerender } = renderHook(() => useIsMounted())
+    const first = result.current
+    rerender()
+    expect(result.current).toBe(first)
+  })
+
+  it('answers for the render that asks, not the one that started the work', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>((_resolve) => (resolve = _resolve))
+    const { result, unmount } = renderHook(() => useIsMounted())
+    const isMounted = result.current
+    const settled = pending.then(() => isMounted())
+    unmount()
+    resolve()
+    expect(await settled).toBe(false)
   })
 })
 
