@@ -43,3 +43,16 @@ import { optionalDate } from '@isikk/core'
 optionalDate('2026-01-05T14:30:00Z') // Date
 optionalDate(undefined) // undefined
 ```
+
+## toDate
+
+Reads a timestamp in any of the three shapes an API sends it in, with the unit of a number stated rather than remembered. allauth's session and passkey payloads carry epoch **seconds**, and forgetting the `* 1000` gives a date in January 1970 rather than an error.
+
+```typescript
+import { toDate } from '@isikk/core'
+
+toDate(session.created_at, 'seconds') // epoch seconds
+toDate(1767623400000) // milliseconds, the default - the same as `new Date(n)`
+toDate('2026-01-05T14:30:00Z') // parsed as `new Date` would; the unit is ignored for a string
+toDate(date) // a Date is returned as it came
+```

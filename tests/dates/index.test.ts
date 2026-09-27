@@ -8,6 +8,7 @@ import {
   optionalDate,
   shortFormattedDate,
   shortFormattedDateTime,
+  toDate,
 } from '../../src/dates'
 
 const date = new Date('2026-01-05T14:30:00Z')
@@ -48,4 +49,38 @@ describe('optionalDate', () => {
   test.prop([fc.date({ noInvalidDate: true })])('round-trips any valid Date through its own ISO string', (d) => {
     expect(optionalDate(d.toISOString())).toEqual(d)
   })
+})
+
+describe('toDate', () => {
+  it('reads epoch seconds when told the unit', () => {
+    expect(toDate(1767623400, 'seconds')).toEqual(date)
+  })
+
+  it('reads a number as milliseconds by default, as Date does', () => {
+    expect(toDate(1767623400000)).toEqual(date)
+  })
+
+  it('reads milliseconds when told so explicitly', () => {
+    expect(toDate(1767623400000, 'milliseconds')).toEqual(date)
+  })
+
+  it('parses a string as new Date would', () => {
+    expect(toDate('2026-01-05T14:30:00Z')).toEqual(date)
+  })
+
+  // A string is never a count of anything, so a unit given alongside one must not scale it.
+  it('ignores the unit for a string', () => {
+    expect(toDate('2026-01-05T14:30:00Z', 'seconds')).toEqual(date)
+  })
+
+  it('returns a Date as it came, whatever the unit', () => {
+    expect(toDate(date, 'seconds')).toBe(date)
+  })
+
+  test.prop([fc.integer({ min: -8_640_000_000, max: 8_640_000_000 })])(
+    'agrees with the hand-written multiplication for any whole second',
+    (seconds) => {
+      expect(toDate(seconds, 'seconds').getTime()).toBe(seconds * 1000)
+    }
+  )
 })
