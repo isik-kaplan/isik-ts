@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-27
+
+### Added
+
+- `toDate(value, unit)` in `@isikk/core`: reads a string, a `Date`, or a number whose unit is named -
+  `'seconds'` for allauth's session and passkey payloads, `'milliseconds'` by default.
+- `useIsMounted` in `@isikk/core/hooks`: a function that answers whether the component is still
+  mounted when it is called. No DOM in it, so it works in React Native.
+- `useApiSubmit(reporter)` in `@isikk/core/hooks`: a submitting flag, the call, and the refusal read
+  as DRF writes it - a 400's fields into the form, another 4xx's `detail` reported, a 5xx or an
+  unreached server reported as the caller's `failure`. The reporter is injected, and sonner's
+  `toast` already fits it. `isSuccess` overrides what counts as success.
+- `useValidatedFormState(schema, initialState, reporter)` in `@isikk/core/hooks`: `useFormState`
+  with any Standard Schema validator, composed with `useApiSubmit` so the schema's and the server's
+  field errors land in the same `formErrors`. A server error naming a field the form does not hold
+  joins `non_field_errors`. The call receives the schema's output. `validate()` is synchronous
+  and throws for a schema that answers asynchronously; `submit()` accepts either.
+
 ## [0.7.0] - 2026-09-19
 
 ### Added
