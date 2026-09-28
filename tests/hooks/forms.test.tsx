@@ -115,6 +115,15 @@ describe('useApiSubmit', () => {
       expect(report.error).toHaveBeenCalledWith('Malformed.')
     })
 
+    // A ParseError is a 400 in the sentence shape, and its code is not a field for the form to hold.
+    it('reports the sentence of a 400 that carries its code beside it', async () => {
+      const setFormErrors = vi.fn()
+      const body = { detail: 'Malformed request.', code: 'parse_error' }
+      const { report } = await submitWith(refusal(400, body), { failure: 'Nope.', setFormErrors })
+      expect(setFormErrors).not.toHaveBeenCalled()
+      expect(report.error).toHaveBeenCalledExactlyOnceWith('Malformed request.')
+    })
+
     it('reports the sentence DRF wrote for a refusal that is not about a field', async () => {
       const { report } = await submitWith(refusal(403, { detail: 'Not yours.' }), { failure: 'Nope.' })
       expect(report.error).toHaveBeenCalledWith('Not yours.')

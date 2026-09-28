@@ -22,6 +22,7 @@ toFormErrors({ detail: 'Not found.' }) // undefined - that is detailOf's shape
 
 - A field's value can be a bare string as well as a list (a `ValidationError` raised with a dict of strings produces that), and it is wrapped into a list.
 - `detail` is skipped: it is the other shape, not a field. A serializer with a field literally named `detail` would lose it.
+- `code` is skipped only beside a string `detail`, where it is the machine-readable name of that same refusal (`{detail: 'Authentication credentials were not provided.', code: 'not_authenticated'}`). Anywhere else - a 400 with no `detail`, or a list of messages - `code` is an ordinary field, like an invitation or MFA code.
 - A value that is neither a string nor a list of strings - a nested serializer's error object, say - is skipped rather than rendered as `[object Object]`.
 - `non_field_errors` is kept as an ordinary key; it is about the form as a whole.
 

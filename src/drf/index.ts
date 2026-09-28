@@ -12,11 +12,18 @@ export type FormErrors = Record<string, string[]> & { non_field_errors?: string[
 export function toFormErrors(body: unknown): FormErrors | undefined {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined
 
+  // The one-sentence shape, where a string `code` names the same refusal for a machine and is no more
+  // a field than `detail` is. Gated on `detail` rather than skipped outright, so a serializer's own
+  // `code` field - an invitation code, an MFA code - still reports on a 400, which has no `detail`.
+  const { detail, code } = body as { detail?: unknown; code?: unknown }
+  const isTheSentenceShape = typeof detail === 'string' && typeof code === 'string'
+
   const errors: FormErrors = {}
   for (const [field, value] of Object.entries(body as Record<string, unknown>)) {
     // `detail` is the other shape, not a field. A serializer with a field genuinely called `detail`
     // would lose it here - that is the price of keeping the two shapes apart.
     if (field === 'detail') continue
+    if (field === 'code' && isTheSentenceShape) continue
     if (typeof value === 'string') errors[field] = [value]
     else if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) errors[field] = value
   }

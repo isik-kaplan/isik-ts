@@ -29,6 +29,26 @@ describe('toFormErrors', () => {
     expect(toFormErrors({ detail: 'Invalid input.', name: ['Taken.'] })).toEqual({ name: ['Taken.'] })
   })
 
+  // DRF gives every built-in exception a code, and a handler that renders it beside `detail` is doing
+  // the ordinary thing. Read as a field, it would show a person the word `not_authenticated`.
+  it('ignores the code that names a refusal beside its sentence', () => {
+    expect(
+      toFormErrors({ detail: 'Authentication credentials were not provided.', code: 'not_authenticated' })
+    ).toBeUndefined()
+    expect(toFormErrors({ detail: 'Invalid input.', code: 'invalid', name: ['Taken.'] })).toEqual({ name: ['Taken.'] })
+  })
+
+  // `code` is an ordinary serializer field - an invitation code, an MFA code - and a 400 has no `detail`.
+  it('keeps a field genuinely called code', () => {
+    expect(toFormErrors({ code: ['This code has expired.'] })).toEqual({ code: ['This code has expired.'] })
+    expect(toFormErrors({ code: 'This code has expired.' })).toEqual({ code: ['This code has expired.'] })
+  })
+
+  // A refusal's code is one string. A list beside a `detail` is a field's messages, not a code.
+  it('keeps a code field whose messages are a list, even beside a detail', () => {
+    expect(toFormErrors({ detail: 'Invalid input.', code: ['Required.'] })).toEqual({ code: ['Required.'] })
+  })
+
   it('returns nothing for the shapes that carry no field errors', () => {
     expect(toFormErrors(undefined)).toBeUndefined()
     expect(toFormErrors(null)).toBeUndefined()
