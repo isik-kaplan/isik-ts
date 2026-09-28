@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-28
+
+### Fixed
+
+- `toFormErrors` no longer reads a refusal's `code` as a field. `{detail, code}` - DRF's sentence with
+  its machine-readable code beside it - showed a person the word `not_authenticated` through
+  `messagesOf`, and a 400 `ParseError` in that shape was handed to the form instead of reported. A
+  `code` is skipped only beside a string `detail`, so a serializer's own `code` field still reports.
+
 ## [0.8.0] - 2026-09-27
 
 ### Added
