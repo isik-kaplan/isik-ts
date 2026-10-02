@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-02
+
+### Changed
+
+- **Breaking:** an acronym in a name is uppercase, except as its leading segment - as in
+  `encodeURIComponent` and `toJSON`. Renamed, with no aliases left behind:
+  - `useApiSubmit` -> `useAPISubmit` in `@isikk/core/hooks`
+  - `ApiResult` -> `APIResult` in `@isikk/core/hooks`
+  - `ApiSubmitOptions` -> `APISubmitOptions` in `@isikk/core/hooks`
+  - `hexToHslTriplet` -> `hexToHSLTriplet` in `@isikk/core`
+  - `guessImageMimeType` -> `guessImageMIMEType` in `@isikk/core`
+  - `isImageMimeType` -> `isImageMIMEType` in `@isikk/core`
+
+  Behaviour is unchanged; a consumer's compiler names every call site on the bump.
+
 ## [0.9.0] - 2026-10-02
 
 ### Added
