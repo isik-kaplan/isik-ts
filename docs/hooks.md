@@ -85,6 +85,45 @@ function Profile() {
 
 The returned function keeps its identity across renders, so it is safe in a dependency list.
 
+## useIdempotencyKey
+
+An `Idempotency-Key` that belongs to the **attempt**, not the call. A key minted per call protects nothing: a person who presses submit again after a lost response makes a second call with a second key, and the server does the work twice. `keyFor(payload)` answers the same key for as long as the payload is the same, and a new one the moment it changes. `used()` ends the attempt once the server accepted it.
+
+```tsx
+import { useApiSubmit, useIdempotencyKey } from '@isikk/core/hooks'
+
+import { toast } from 'sonner'
+
+function PayButton({ amount }: { amount: number }) {
+  const { isSubmitting, submit } = useApiSubmit(toast)
+  const { keyFor, used } = useIdempotencyKey()
+
+  return (
+    <button
+      disabled={isSubmitting}
+      onClick={() => {
+        const body = { amount }
+        submit(() => api.POST('/payments/', { body, headers: { 'Idempotency-Key': keyFor(body) } }), {
+          failure: 'Could not pay.',
+          onSuccess: used,
+        })
+      }}
+    />
+  )
+}
+```
+
+- Because the key changes exactly when the payload does, the browser never sends one key with two payloads. A server's "same key, different payload" refusal then only ever means some other caller.
+- Spend it only on success. After a throw or a refusal, the same payload sent again is the same attempt.
+- `keyFor()` with no argument keys a write with no body.
+- Placing the header is the caller's - every client places it differently.
+- `generateKey` replaces `crypto.randomUUID()`, which React Native's Hermes and pages served over plain http do not have: `useIdempotencyKey({ generateKey: uuid })`.
+- Payloads are compared by `JSON.stringify`. A reordered object gets a new key, which is harmless. A `File` reads as `{}`, so a multipart form passes its own snapshot - file names and sizes, say - as the payload. A `BigInt` or a cycle throws.
+
+### useIdempotencyKeyOf
+
+`useIdempotencyKeyOf(values, options?)` is the same thing read during render, returning `{ key, used }`, for a caller that wants the key as a value. Prefer `useIdempotencyKey` where the payload is at hand when sending: this one keys the values as rendered, which are not always what is sent - a schema's `.trim()` turns two values into one payload, and this gives them two keys. `used()` re-renders, so `key` is fresh after it.
+
 ## useApiSubmit
 
 The tail every write shares: a submitting flag, the call, and the server's refusal put where a person can read it. Refusals are read as Django REST framework writes them (see [drf.md](drf.md)).
@@ -117,7 +156,7 @@ function RevokeButton({ id }: { id: string }) {
 
 `call` returns an openapi-fetch-shaped result, `{ data?, error?, response? }`. `submit` resolves to whether it succeeded.
 
-- **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess` receives the result.
+- **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess(result, { replayed })` receives the result, and whether the server answered with `Idempotent-Replayed: true` - worth saying "already done" rather than "saved".
 - **A 400** is read as field errors. Given `setFormErrors`, they go there and nothing is reported. Without it, every message is reported as one line.
 - **Any other 4xx** reports DRF's `detail` sentence. **A 5xx, or no response at all,** reports `failure` - that body is not written for a person, and often is not JSON.
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
@@ -154,6 +193,7 @@ function RenameForm() {
 Returns everything `useFormState` does, plus `validate`, `isSubmitting` and `submit`.
 
 - `submit` validates first and never makes the call when the schema refuses. The call receives the schema's **output**, so a `.trim()` or a coercion is not lost.
+- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A form that does not want one ignores it. The fourth argument, `{ generateKey }`, replaces `crypto.randomUUID()`.
 - The schema's issues and the server's 400 land in the same `formErrors`, so a refusal from either side renders in the same place. An issue is filed under the first segment of its path; one with no path goes under `non_field_errors`.
 - A server error naming a field the form state does not hold joins `non_field_errors` rather than being dropped - a serializer can refuse a column this form never shows.
 - `validate()` returns a `boolean`, so `if (!validate()) return` works. It needs a synchronous schema - every zod or valibot schema without an async refinement - and throws a `TypeError` for one that answers with a Promise, rather than returning a Promise that would always read as valid. `submit` awaits the schema, so it accepts either.

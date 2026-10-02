@@ -22,8 +22,8 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 ## React (`@isikk/core/hooks`)
 
 - [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`,
-  `useApiSubmit`, `useEffectAfterMount`, `useIsMounted`, `useFilePaste`, `useFileDragDrop` (peer
-  dep: `react`)
+  `useApiSubmit`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
+  `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
 ## Django REST framework (`@isikk/core/drf`)
 

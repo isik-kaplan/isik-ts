@@ -12,8 +12,8 @@ function reporter() {
 
 // Only what the hook reads off a Response. A real one would work as well; this keeps `ok` and
 // `status` from disagreeing by accident.
-function response(status: number) {
-  return { ok: status >= 200 && status < 300, status } as Response
+function response(status: number, headers?: HeadersInit) {
+  return { ok: status >= 200 && status < 300, status, headers: new Headers(headers) } as Response
 }
 
 function refusal(status: number, error: unknown): ApiResult {
@@ -37,7 +37,7 @@ describe('useApiSubmit', () => {
       const result = { data: { id: 1 }, response: response(200) }
       const { ok, report } = await submitWith(result, { failure: 'Could not save.', onSuccess })
       expect(ok).toBe(true)
-      expect(onSuccess).toHaveBeenCalledWith(result)
+      expect(onSuccess).toHaveBeenCalledWith(result, { replayed: false })
       expect(report.success).not.toHaveBeenCalled()
       expect(report.error).not.toHaveBeenCalled()
     })
@@ -67,7 +67,7 @@ describe('useApiSubmit', () => {
         onSuccess,
       })
       expect(ok).toBe(true)
-      expect(onSuccess).toHaveBeenCalledWith(result)
+      expect(onSuccess).toHaveBeenCalledWith(result, { replayed: false })
       expect(report.error).not.toHaveBeenCalled()
     })
 
@@ -75,6 +75,35 @@ describe('useApiSubmit', () => {
       const { ok, report } = await submitWith({ response: response(200) }, { failure: 'Nope.', isSuccess: () => false })
       expect(ok).toBe(false)
       expect(report.error).toHaveBeenCalledWith('Nope.')
+    })
+  })
+
+  describe('replay', () => {
+    async function outcomeOf(result: ApiResult) {
+      const onSuccess = vi.fn()
+      await submitWith(result, { failure: 'Nope.', onSuccess })
+      return onSuccess.mock.calls[0][1]
+    }
+
+    // The server answered from an earlier attempt, so the work is already done rather than just done.
+    it('tells onSuccess the server replayed an earlier attempt', async () => {
+      expect(await outcomeOf({ response: response(201, { 'Idempotent-Replayed': 'true' }) })).toEqual({
+        replayed: true,
+      })
+    })
+
+    it('reads a response without the header as done now', async () => {
+      expect(await outcomeOf({ response: response(201) })).toEqual({ replayed: false })
+    })
+
+    it('reads only "true" as a replay', async () => {
+      expect(await outcomeOf({ response: response(201, { 'Idempotent-Replayed': 'false' }) })).toEqual({
+        replayed: false,
+      })
+    })
+
+    it('reads a result with no response as done now', async () => {
+      expect(await outcomeOf({})).toEqual({ replayed: false })
     })
   })
 
@@ -331,7 +360,7 @@ describe('useValidatedFormState', () => {
         ok = await result.current.submit(call, { failure: 'Nope.', onSuccess })
       })
       expect(ok).toBe(true)
-      expect(call).toHaveBeenCalledWith({ name: 'Ada', password: 'x', confirm: 'x' })
+      expect(call).toHaveBeenCalledWith({ name: 'Ada', password: 'x', confirm: 'x' }, expect.any(String))
       expect(onSuccess).toHaveBeenCalledOnce()
     })
 
@@ -355,7 +384,7 @@ describe('useValidatedFormState', () => {
       await act(async () => {
         await result.current.submit(call, { failure: 'Nope.' })
       })
-      expect(call).toHaveBeenCalledWith({ name: 'from schema' })
+      expect(call).toHaveBeenCalledWith({ name: 'from schema' }, expect.any(String))
     })
 
     it("puts the server's field errors where the schema's would go", async () => {
@@ -427,6 +456,100 @@ describe('useValidatedFormState', () => {
         await submitted
       })
       expect(result.current.isSubmitting).toBe(false)
+    })
+  })
+
+  describe('idempotency key', () => {
+    // Numbered keys, so a test can say which attempt a call belonged to.
+    function keyed(initial = valid) {
+      let minted = 0
+      const report = reporter()
+      const { result } = renderHook(() =>
+        useValidatedFormState(schema, initial, report, { generateKey: () => `key-${++minted}` })
+      )
+      return { result, report }
+    }
+
+    async function keysSentBy(
+      hook: ReturnType<typeof keyed>['result'],
+      ...results: Array<ApiResult | Error>
+    ): Promise<string[]> {
+      const keys: string[] = []
+      for (const outcome of results) {
+        await act(async () => {
+          await hook.current
+            .submit(
+              async (_value, key) => {
+                keys.push(key)
+                if (outcome instanceof Error) throw outcome
+                return outcome
+              },
+              { failure: 'Nope.' }
+            )
+            .catch(() => undefined)
+        })
+      }
+      return keys
+    }
+
+    // The case a key exists for: the server did the work, the answer never arrived, and the person
+    // pressed submit again.
+    it('sends the same key again after a call that never answered', async () => {
+      const { result } = keyed()
+      expect(await keysSentBy(result, new Error('offline'), {})).toEqual(['key-1', 'key-1'])
+    })
+
+    it('sends the same key again after a refusal, for the same payload', async () => {
+      const { result } = keyed()
+      expect(await keysSentBy(result, refusal(409, { detail: 'Busy.' }), {})).toEqual(['key-1', 'key-1'])
+    })
+
+    it('starts a new attempt after a success', async () => {
+      const { result } = keyed()
+      expect(await keysSentBy(result, { response: response(201) }, {})).toEqual(['key-1', 'key-2'])
+    })
+
+    it('starts a new attempt when the payload is edited', async () => {
+      const { result } = keyed()
+      const first = await keysSentBy(result, new Error('offline'))
+      act(() => result.current.handleFormStateValue('name')('Grace'))
+      expect([...first, ...(await keysSentBy(result, {}))]).toEqual(['key-1', 'key-2'])
+    })
+
+    // Keyed on what is sent, so an edit the schema undoes is still the same attempt.
+    it("keys on the schema's output, not the state as typed", async () => {
+      const { result } = keyed()
+      const first = await keysSentBy(result, new Error('offline'))
+      act(() => result.current.handleFormStateValue('name')('Ada'))
+      expect([...first, ...(await keysSentBy(result, {}))]).toEqual(['key-1', 'key-1'])
+    })
+
+    it('mints no key for a payload the schema refuses', async () => {
+      const { result } = keyed({ ...valid, name: '' })
+      expect(await keysSentBy(result, {})).toEqual([])
+      act(() => result.current.handleFormStateValue('name')('Ada'))
+      expect(await keysSentBy(result, {})).toEqual(['key-1'])
+    })
+
+    it('still hands onSuccess the result and whether it was replayed', async () => {
+      const onSuccess = vi.fn()
+      const { result } = keyed()
+      const replayed = { response: response(201, { 'Idempotent-Replayed': 'true' }) }
+      await act(async () => {
+        await result.current.submit(async () => replayed, { failure: 'Nope.', onSuccess })
+      })
+      expect(onSuccess).toHaveBeenCalledExactlyOnceWith(replayed, { replayed: true })
+    })
+
+    it('uses crypto.randomUUID when no generator is given', async () => {
+      const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue('0-0-0-0-0')
+      const call = vi.fn(async () => ({}))
+      const { result } = renderForm()
+      await act(async () => {
+        await result.current.submit(call, { failure: 'Nope.' })
+      })
+      expect(call).toHaveBeenCalledWith(expect.anything(), '0-0-0-0-0')
+      uuid.mockRestore()
     })
   })
 })

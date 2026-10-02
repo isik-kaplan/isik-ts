@@ -462,6 +462,72 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
   }
 }
 
+export type IdempotencyKeyOptions = {
+  // Default: `crypto.randomUUID()`, which React Native's Hermes and a page served over plain http do
+  // not have. Pass any generator of unique strings there - a polyfilled uuid, say.
+  generateKey?: () => string
+}
+
+/**
+ * An `Idempotency-Key` that belongs to the attempt, not the call.
+ *
+ * A key minted per call protects nothing: a person who presses submit again after a lost response
+ * makes a second call, and a second key, and the server does the work twice. So `keyFor(payload)`
+ * answers the same key for as long as the payload is the same, and a new one the moment it changes.
+ * `used()` ends the attempt once the server has accepted it, so the next one starts clean.
+ *
+ * Because the key changes exactly when the payload does, this never sends the server one key with
+ * two payloads - a "same key, different payload" refusal then only ever means some other caller.
+ *
+ * The payload is compared by `JSON.stringify`, so:
+ * - a reordered object reads as a new payload and gets a new key. That is harmless - a new attempt
+ *   is always a safe answer.
+ * - a `File` reads as `{}`, so two different uploads would share a key. A multipart form wants its
+ *   own snapshot, such as the file names and sizes, passed as the payload instead.
+ * - a `BigInt` or a cycle throws, as `JSON.stringify` does.
+ *
+ * Placing the header is the caller's, since every client places it differently.
+ */
+export function useIdempotencyKey({ generateKey = () => crypto.randomUUID() }: IdempotencyKeyOptions = {}) {
+  const attempt = useRef<{ snapshot: string | undefined; key: string } | null>(null)
+
+  // `payload` is optional for a write with no body, which still wants one key per attempt.
+  function keyFor(payload?: unknown): string {
+    const snapshot = JSON.stringify(payload)
+    if (attempt.current === null || attempt.current.snapshot !== snapshot) {
+      attempt.current = { snapshot, key: generateKey() }
+    }
+    return attempt.current.key
+  }
+
+  function used() {
+    attempt.current = null
+  }
+
+  return { keyFor, used }
+}
+
+/**
+ * `useIdempotencyKey` read during render, for a caller that wants the key as a value - to show it, or
+ * to hand it to something that takes props.
+ *
+ * Prefer `useIdempotencyKey` where the payload is at hand when sending: this one keys the values as
+ * rendered, which are not always what is sent - a schema's `.trim()` turns two values into one
+ * payload, and this gives them two keys. `used()` re-renders, so `key` is fresh after it.
+ */
+export function useIdempotencyKeyOf(values: unknown, options?: IdempotencyKeyOptions) {
+  const { keyFor, used } = useIdempotencyKey(options)
+  const [, rerender] = useState({})
+
+  return {
+    key: keyFor(values),
+    used: () => {
+      used()
+      rerender({})
+    },
+  }
+}
+
 /**
  * Where a submit puts what it has to say to a person. sonner's `toast` already has this shape and can
  * be passed as it is; a library cannot pick the toast for the app.
@@ -486,11 +552,21 @@ export type ApiSubmitOptions<R extends ApiResult> = {
   // nothing is reported; without one they are reported as one line, which is what a button with no
   // form behind it wants. Only ever called with errors there are.
   setFormErrors?: (errors: FormErrors) => void
-  onSuccess?: (result: R) => void
+  onSuccess?: (result: R, outcome: SubmitOutcome) => void
+}
+
+export type SubmitOutcome = {
+  // The server answered from an earlier attempt with the same `Idempotency-Key` rather than doing the
+  // work again - worth telling a person "already done" rather than "saved".
+  replayed: boolean
 }
 
 function succeeded(result: ApiResult): boolean {
   return !result.error && (result.response === undefined || result.response.ok)
+}
+
+function outcomeOf(result: ApiResult): SubmitOutcome {
+  return { replayed: result.response?.headers.get('Idempotent-Replayed') === 'true' }
 }
 
 /**
@@ -519,7 +595,7 @@ export function useApiSubmit(reporter: Reporter) {
 
     if ((options.isSuccess ?? succeeded)(result)) {
       if (options.success) reporter.success(options.success)
-      options.onSuccess?.(result)
+      options.onSuccess?.(result, outcomeOf(result))
       return true
     }
 
@@ -587,14 +663,20 @@ function fromIssues(issues: ReadonlyArray<StandardIssue>): FormErrors {
  *
  * `validate` needs a synchronous schema, which every zod and valibot schema without an async
  * refinement is. `submit` is async regardless, so it accepts either.
+ *
+ * Every submit carries an idempotency key from `useIdempotencyKey`, keyed on the schema's output, so a
+ * resubmit after a lost response is recognised as the same attempt. A form that does not want one
+ * ignores the call's second argument - nothing here touches the network.
  */
 export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   schema: S,
   initialState: InputOf<S>,
-  reporter: Reporter
+  reporter: Reporter,
+  options?: IdempotencyKeyOptions
 ) {
   const form = useFormState<InputOf<S>>(initialState)
   const { isSubmitting, submit: submitToApi } = useApiSubmit(reporter)
+  const { keyFor, used } = useIdempotencyKey(options)
   // Typed against this call's concrete S, which a generic S cannot be checked against here - the
   // shape, a list of messages per field plus non_field_errors, is the same.
   const setFormErrors = form.setFormErrors as (errors: FormErrors | undefined) => void
@@ -638,14 +720,24 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   /**
    * Validates first, so a form never spends a round trip on something it could refuse itself, and
    * hands the call the schema's output rather than the raw state, so a transform is not lost.
+   *
+   * The key is spent before `onSuccess` runs, so a submit made from there is a new attempt. A refusal
+   * or a throw keeps it: the same payload sent again is the same attempt.
    */
   async function submit<R extends ApiResult>(
-    call: (value: OutputOf<S>) => Promise<R>,
+    call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
     options: Omit<ApiSubmitOptions<R>, 'setFormErrors'>
   ): Promise<boolean> {
     const result = record(await schema['~standard'].validate(form.formState))
     if (result.issues) return false
-    return submitToApi(() => call(result.value), { ...options, setFormErrors: acceptServerErrors })
+    return submitToApi(() => call(result.value, keyFor(result.value)), {
+      ...options,
+      setFormErrors: acceptServerErrors,
+      onSuccess: (response, outcome) => {
+        used()
+        options.onSuccess?.(response, outcome)
+      },
+    })
   }
 
   return { ...form, validate, isSubmitting, submit }
