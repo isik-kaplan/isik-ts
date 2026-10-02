@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-02
+
+### Added
+
+- `useIdempotencyKey(options?)` in `@isikk/core/hooks`: `keyFor(payload)` answers the same
+  `Idempotency-Key` for as long as the payload is the same and a new one when it changes, and
+  `used()` ends the attempt - so a resubmit after a lost response is the same attempt to the server.
+  `generateKey` replaces `crypto.randomUUID()` where there is none, such as React Native.
+- `useIdempotencyKeyOf(values, options?)` in `@isikk/core/hooks`: the same, read during render as
+  `{ key, used }`.
+- `useApiSubmit`'s `onSuccess` receives `{ replayed }` beside the result: whether the server answered
+  with `Idempotent-Replayed: true`.
+- `useValidatedFormState`'s `submit` hands the call an idempotency key as its second argument, keyed
+  on the schema's output and spent on success. A fourth argument, `{ generateKey }`, is passed on.
+
 ## [0.8.1] - 2026-09-28
 
 ### Fixed
