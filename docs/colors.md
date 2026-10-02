@@ -33,18 +33,18 @@ const palette = {
 palette.primary500 // '#3b82f6'
 ```
 
-## hexToHslTriplet
+## hexToHSLTriplet
 
 Formats a hex color as the `"H S% L%"` triplet that shadcn/Tailwind CSS-variable themes expect - e.g. for `--primary: 240 5.9% 10%;`, consumed as `hsl(var(--primary))` in `tailwind.config.ts`.
 
 ```typescript
-import { hexToHslTriplet } from '@isikk/core'
+import { hexToHSLTriplet } from '@isikk/core'
 
-hexToHslTriplet('#3b82f6') // '217.2 91.2% 59.8%'
+hexToHSLTriplet('#3b82f6') // '217.2 91.2% 59.8%'
 ```
 
 An optional second argument controls rounding precision (default `1`):
 
 ```typescript
-hexToHslTriplet('#3b82f6', 2) // '217.22 91.22% 59.8%'
+hexToHSLTriplet('#3b82f6', 2) // '217.22 91.22% 59.8%'
 ```

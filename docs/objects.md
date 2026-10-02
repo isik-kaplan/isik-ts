@@ -10,11 +10,11 @@ Checks that an object's defined (non-`undefined`) keys match exactly one of seve
 import { checkRequiredKeys } from '@isikk/core'
 
 const conditions = {
-  byUrl: ['url'],
+  byURL: ['url'],
   byHostPort: ['host', 'port'],
 } as const
 
-checkRequiredKeys({ url: 'https://example.com' }, conditions) // 'byUrl'
+checkRequiredKeys({ url: 'https://example.com' }, conditions) // 'byURL'
 checkRequiredKeys({ host: 'localhost', port: 8080 }, conditions) // 'byHostPort'
 checkRequiredKeys({ url: '...', host: 'localhost' }, conditions) // throws
 ```
@@ -30,7 +30,7 @@ A decorator form of the same validation `checkRequiredKeys` does, applied once a
 import { requireExclusiveKeys } from '@isikk/core'
 
 const conditions = {
-  byUrl: ['url'],
+  byURL: ['url'],
   byHost: ['host', 'port'],
 } as const
 
@@ -43,8 +43,8 @@ const connect = requireExclusiveKeys(conditions)((options: {
   // ...
 })
 
-connect({ url: 'https://example.com' }) // OK - matches byUrl
-connect({ url: 'https://example.com', db: 1 }) // OK - matches byUrl, db is unrelated and ignored
+connect({ url: 'https://example.com' }) // OK - matches byURL
+connect({ url: 'https://example.com', db: 1 }) // OK - matches byURL, db is unrelated and ignored
 connect({ host: 'localhost', port: 8080 }) // OK - matches byHost
 connect({ url: '...', host: 'localhost' }) // throws - matches both
 connect({}) // throws - matches neither

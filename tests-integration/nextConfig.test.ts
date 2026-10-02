@@ -70,7 +70,7 @@ function freePort(): Promise<number> {
 
 interface Server {
   get: (pathname: string) => Promise<string>
-  getJson: (pathname: string) => Promise<unknown>
+  getJSON: (pathname: string) => Promise<unknown>
   stop: () => void
 }
 
@@ -99,7 +99,7 @@ async function serve(vars: Record<string, string>): Promise<Server> {
 
   return {
     get: async (pathname) => (await fetch(`${base}${pathname}`)).text(),
-    getJson: async (pathname) => (await fetch(`${base}${pathname}`)).json(),
+    getJSON: async (pathname) => (await fetch(`${base}${pathname}`)).json(),
     stop: () => child.kill('SIGKILL'),
   }
 }
@@ -159,20 +159,20 @@ describe('one build, many environments', () => {
   it('serves the environment the server was started with, without rebuilding', async () => {
     const first = await serve({ PUBLIC__API_URL: 'https://one.example.com', PUBLIC__RETRIES: '7' })
     servers.push(first)
-    const firstHtml = await first.get('/')
+    const firstHTML = await first.get('/')
     first.stop()
 
     const second = await serve({ PUBLIC__API_URL: 'https://two.example.com', PUBLIC__RETRIES: '9' })
     servers.push(second)
-    const secondHtml = await second.get('/')
+    const secondHTML = await second.get('/')
     second.stop()
 
     // Same .next directory for both. This is the entire reason the module exists: with
     // NEXT_PUBLIC_*, changing either value would need a rebuild and a new image.
-    expect(readField(firstHtml, 'server-api-url')).toBe('https://one.example.com')
-    expect(readField(secondHtml, 'server-api-url')).toBe('https://two.example.com')
-    expect(readField(firstHtml, 'server-retries')).toBe('7 (number)')
-    expect(readField(secondHtml, 'server-retries')).toBe('9 (number)')
+    expect(readField(firstHTML, 'server-api-url')).toBe('https://one.example.com')
+    expect(readField(secondHTML, 'server-api-url')).toBe('https://two.example.com')
+    expect(readField(firstHTML, 'server-retries')).toBe('7 (number)')
+    expect(readField(secondHTML, 'server-retries')).toBe('9 (number)')
   })
 
   it('applies missingDefault at runtime for variables that are not set', async () => {
@@ -207,7 +207,7 @@ describe('export conditions, as Next actually resolves them', () => {
   it('gives an edge route the server build, not the browser one', async () => {
     const server = await serve({ PUBLIC__API_URL: 'https://edge.example.com', PUBLIC__RETRIES: '5' })
     servers.push(server)
-    const payload = await server.getJson('/api/edge')
+    const payload = await server.getJSON('/api/edge')
     server.stop()
 
     // Next's edge compiler sets `browser` alongside `edge-light`/`worker`. If `browser` won here,

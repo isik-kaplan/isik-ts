@@ -2,7 +2,7 @@ import { fc, test } from '@fast-check/vitest'
 
 import { describe, expect, it } from 'vitest'
 
-import { generateNamedTailwindColorScale, generateTailwindColorScale, hexToHslTriplet } from '../../src/colors'
+import { generateNamedTailwindColorScale, generateTailwindColorScale, hexToHSLTriplet } from '../../src/colors'
 
 describe('generateTailwindColorScale', () => {
   it('keeps 500 as the input color, normalized to lowercase 6-digit hex', () => {
@@ -55,13 +55,13 @@ describe('generateTailwindColorScale', () => {
 
   it('lightens shades below 500 towards white and darkens shades above 500 towards black', () => {
     const scale = generateTailwindColorScale('#3b82f6')
-    const toRgbSum = (hex: string) =>
+    const toRGBSum = (hex: string) =>
       [1, 3, 5].reduce((sum, offset) => sum + parseInt(hex.slice(offset, offset + 2), 16), 0)
 
-    expect(toRgbSum(scale[50])).toBeGreaterThan(toRgbSum(scale[400]))
-    expect(toRgbSum(scale[400])).toBeGreaterThan(toRgbSum(scale[500]))
-    expect(toRgbSum(scale[500])).toBeGreaterThan(toRgbSum(scale[600]))
-    expect(toRgbSum(scale[600])).toBeGreaterThan(toRgbSum(scale[950]))
+    expect(toRGBSum(scale[50])).toBeGreaterThan(toRGBSum(scale[400]))
+    expect(toRGBSum(scale[400])).toBeGreaterThan(toRGBSum(scale[500]))
+    expect(toRGBSum(scale[500])).toBeGreaterThan(toRGBSum(scale[600]))
+    expect(toRGBSum(scale[600])).toBeGreaterThan(toRGBSum(scale[950]))
   })
 
   it('mixes each of r, g, and b towards white/black independently, not just in aggregate', () => {
@@ -113,41 +113,41 @@ describe('generateNamedTailwindColorScale', () => {
   })
 })
 
-describe('hexToHslTriplet', () => {
+describe('hexToHSLTriplet', () => {
   it('formats an achromatic (gray) color', () => {
-    expect(hexToHslTriplet('#808080')).toBe('0 0% 50.2%')
+    expect(hexToHSLTriplet('#808080')).toBe('0 0% 50.2%')
   })
 
   it('formats a color where red is the max channel and green < blue', () => {
-    expect(hexToHslTriplet('#c83296')).toBe('320 60% 49%')
+    expect(hexToHSLTriplet('#c83296')).toBe('320 60% 49%')
   })
 
   it('formats a color where red is the max channel and green >= blue', () => {
-    expect(hexToHslTriplet('#c86432')).toBe('20 60% 49%')
+    expect(hexToHSLTriplet('#c86432')).toBe('20 60% 49%')
   })
 
   it('formats a color where green is the max channel', () => {
-    expect(hexToHslTriplet('#32c864')).toBe('140 60% 49%')
+    expect(hexToHSLTriplet('#32c864')).toBe('140 60% 49%')
   })
 
   it('formats a color where blue is the max channel', () => {
-    expect(hexToHslTriplet('#3264c8')).toBe('220 60% 49%')
+    expect(hexToHSLTriplet('#3264c8')).toBe('220 60% 49%')
   })
 
   it('takes the l > 0.5 branch for light colors', () => {
-    expect(hexToHslTriplet('#add8e6')).toBe('194.7 53.3% 79%')
+    expect(hexToHSLTriplet('#add8e6')).toBe('194.7 53.3% 79%')
   })
 
   it('picks the 0-6 wraparound branch by strict inequality when green equals blue', () => {
     // r is max, g === b: (gN - bN) is 0 either way, so only the ternary's strictness shows up.
-    expect(hexToHslTriplet('#ff8080')).toBe('0 100% 75.1%')
+    expect(hexToHSLTriplet('#ff8080')).toBe('0 100% 75.1%')
   })
 
   it('respects a custom precision', () => {
-    expect(hexToHslTriplet('#3b82f6', 2)).toBe('217.22 91.22% 59.8%')
+    expect(hexToHSLTriplet('#3b82f6', 2)).toBe('217.22 91.22% 59.8%')
   })
 
   it('throws on invalid hex input', () => {
-    expect(() => hexToHslTriplet('nope')).toThrow('Invalid hex color')
+    expect(() => hexToHSLTriplet('nope')).toThrow('Invalid hex color')
   })
 })

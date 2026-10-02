@@ -3,8 +3,8 @@ import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { ApiResult, Reporter, StandardSchemaV1 } from '../../src/hooks'
-import { useApiSubmit, useValidatedFormState } from '../../src/hooks'
+import type { APIResult, Reporter, StandardSchemaV1 } from '../../src/hooks'
+import { useAPISubmit, useValidatedFormState } from '../../src/hooks'
 
 function reporter() {
   return { success: vi.fn(), error: vi.fn() } satisfies Reporter
@@ -16,13 +16,13 @@ function response(status: number, headers?: HeadersInit) {
   return { ok: status >= 200 && status < 300, status, headers: new Headers(headers) } as Response
 }
 
-function refusal(status: number, error: unknown): ApiResult {
+function refusal(status: number, error: unknown): APIResult {
   return { error, response: response(status) }
 }
 
-async function submitWith(result: ApiResult, options: Parameters<ReturnType<typeof useApiSubmit>['submit']>[1]) {
+async function submitWith(result: APIResult, options: Parameters<ReturnType<typeof useAPISubmit>['submit']>[1]) {
   const report = reporter()
-  const { result: hook } = renderHook(() => useApiSubmit(report))
+  const { result: hook } = renderHook(() => useAPISubmit(report))
   let ok: boolean | undefined
   await act(async () => {
     ok = await hook.current.submit(async () => result, options)
@@ -30,7 +30,7 @@ async function submitWith(result: ApiResult, options: Parameters<ReturnType<type
   return { ok, report }
 }
 
-describe('useApiSubmit', () => {
+describe('useAPISubmit', () => {
   describe('success', () => {
     it('counts a result with no error and an ok response as success', async () => {
       const onSuccess = vi.fn()
@@ -79,7 +79,7 @@ describe('useApiSubmit', () => {
   })
 
   describe('replay', () => {
-    async function outcomeOf(result: ApiResult) {
+    async function outcomeOf(result: APIResult) {
       const onSuccess = vi.fn()
       await submitWith(result, { failure: 'Nope.', onSuccess })
       return onSuccess.mock.calls[0][1]
@@ -189,13 +189,13 @@ describe('useApiSubmit', () => {
 
   describe('isSubmitting', () => {
     it('is true while the call is pending and false once it settles', async () => {
-      const { result } = renderHook(() => useApiSubmit(reporter()))
+      const { result } = renderHook(() => useAPISubmit(reporter()))
       expect(result.current.isSubmitting).toBe(false)
 
-      let finish!: (value: ApiResult) => void
+      let finish!: (value: APIResult) => void
       let submitted!: Promise<boolean>
       act(() => {
-        submitted = result.current.submit(() => new Promise<ApiResult>((resolve) => (finish = resolve)), {
+        submitted = result.current.submit(() => new Promise<APIResult>((resolve) => (finish = resolve)), {
           failure: 'Nope.',
         })
       })
@@ -210,7 +210,7 @@ describe('useApiSubmit', () => {
 
     it('is released when the call throws, and the throw reaches the caller', async () => {
       const report = reporter()
-      const { result } = renderHook(() => useApiSubmit(report))
+      const { result } = renderHook(() => useAPISubmit(report))
       await act(async () => {
         await expect(
           result.current.submit(
@@ -443,10 +443,10 @@ describe('useValidatedFormState', () => {
 
     it('exposes the submitting flag of the call it makes', async () => {
       const { result } = renderForm()
-      let finish!: (value: ApiResult) => void
+      let finish!: (value: APIResult) => void
       let submitted!: Promise<boolean>
       await act(async () => {
-        submitted = result.current.submit(() => new Promise<ApiResult>((resolve) => (finish = resolve)), {
+        submitted = result.current.submit(() => new Promise<APIResult>((resolve) => (finish = resolve)), {
           failure: 'Nope.',
         })
       })
@@ -472,7 +472,7 @@ describe('useValidatedFormState', () => {
 
     async function keysSentBy(
       hook: ReturnType<typeof keyed>['result'],
-      ...results: Array<ApiResult | Error>
+      ...results: Array<APIResult | Error>
     ): Promise<string[]> {
       const keys: string[] = []
       for (const outcome of results) {

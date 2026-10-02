@@ -2,7 +2,7 @@ export type TailwindShade = 50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 |
 
 export type TailwindColorScale = Record<TailwindShade, string>
 
-interface Rgb {
+interface RGB {
   r: number
   g: number
   b: number
@@ -10,7 +10,7 @@ interface Rgb {
 
 const HEX_PATTERN = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
 
-function hexToRgb(hex: string): Rgb {
+function hexToRGB(hex: string): RGB {
   const match = HEX_PATTERN.exec(hex.trim())
   if (!match) {
     throw new Error(`Invalid hex color: "${hex}"`)
@@ -32,11 +32,11 @@ function hexToRgb(hex: string): Rgb {
   }
 }
 
-function rgbToHex({ r, g, b }: Rgb): string {
+function rgbToHex({ r, g, b }: RGB): string {
   return `#${[r, g, b].map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`
 }
 
-function mixRgb(base: Rgb, target: Rgb, weight: number): Rgb {
+function mixRGB(base: RGB, target: RGB, weight: number): RGB {
   return {
     r: base.r + (target.r - base.r) * weight,
     g: base.g + (target.g - base.g) * weight,
@@ -44,8 +44,8 @@ function mixRgb(base: Rgb, target: Rgb, weight: number): Rgb {
   }
 }
 
-const WHITE: Rgb = { r: 255, g: 255, b: 255 }
-const BLACK: Rgb = { r: 0, g: 0, b: 0 }
+const WHITE: RGB = { r: 255, g: 255, b: 255 }
+const BLACK: RGB = { r: 0, g: 0, b: 0 }
 
 // Weight of white/black mixed into the base color at each shade, tuned so 500 is the input
 // color unchanged and the rest approximate the spread of Tailwind's own default palettes.
@@ -62,20 +62,20 @@ const SHADE_WEIGHTS: Record<600 | 700 | 800 | 900 | 950, number> = {
  * Generates a Tailwind-style 50-950 color scale from a single base hex color, treated as the 500 shade.
  */
 export function generateTailwindColorScale(baseColor: string): TailwindColorScale {
-  const base = hexToRgb(baseColor)
+  const base = hexToRGB(baseColor)
 
   return {
-    50: rgbToHex(mixRgb(base, WHITE, TINT_WEIGHTS[50])),
-    100: rgbToHex(mixRgb(base, WHITE, TINT_WEIGHTS[100])),
-    200: rgbToHex(mixRgb(base, WHITE, TINT_WEIGHTS[200])),
-    300: rgbToHex(mixRgb(base, WHITE, TINT_WEIGHTS[300])),
-    400: rgbToHex(mixRgb(base, WHITE, TINT_WEIGHTS[400])),
+    50: rgbToHex(mixRGB(base, WHITE, TINT_WEIGHTS[50])),
+    100: rgbToHex(mixRGB(base, WHITE, TINT_WEIGHTS[100])),
+    200: rgbToHex(mixRGB(base, WHITE, TINT_WEIGHTS[200])),
+    300: rgbToHex(mixRGB(base, WHITE, TINT_WEIGHTS[300])),
+    400: rgbToHex(mixRGB(base, WHITE, TINT_WEIGHTS[400])),
     500: rgbToHex(base),
-    600: rgbToHex(mixRgb(base, BLACK, SHADE_WEIGHTS[600])),
-    700: rgbToHex(mixRgb(base, BLACK, SHADE_WEIGHTS[700])),
-    800: rgbToHex(mixRgb(base, BLACK, SHADE_WEIGHTS[800])),
-    900: rgbToHex(mixRgb(base, BLACK, SHADE_WEIGHTS[900])),
-    950: rgbToHex(mixRgb(base, BLACK, SHADE_WEIGHTS[950])),
+    600: rgbToHex(mixRGB(base, BLACK, SHADE_WEIGHTS[600])),
+    700: rgbToHex(mixRGB(base, BLACK, SHADE_WEIGHTS[700])),
+    800: rgbToHex(mixRGB(base, BLACK, SHADE_WEIGHTS[800])),
+    900: rgbToHex(mixRGB(base, BLACK, SHADE_WEIGHTS[900])),
+    950: rgbToHex(mixRGB(base, BLACK, SHADE_WEIGHTS[950])),
   }
 }
 
@@ -95,7 +95,7 @@ export function generateNamedTailwindColorScale<T extends string>(
   >
 }
 
-function rgbToHsl({ r, g, b }: Rgb): { h: number; s: number; l: number } {
+function rgbToHSL({ r, g, b }: RGB): { h: number; s: number; l: number } {
   const rN = r / 255
   const gN = g / 255
   const bN = b / 255
@@ -130,8 +130,8 @@ function rgbToHsl({ r, g, b }: Rgb): { h: number; s: number; l: number } {
  * Formats a hex color as the "H S% L%" triplet shadcn/Tailwind CSS variable themes expect,
  * e.g. for `--primary: 240 5.9% 10%;` consumed as `hsl(var(--primary))`.
  */
-export function hexToHslTriplet(hex: string, precision: number = 1): string {
-  const { h, s, l } = rgbToHsl(hexToRgb(hex))
+export function hexToHSLTriplet(hex: string, precision: number = 1): string {
+  const { h, s, l } = rgbToHSL(hexToRGB(hex))
   const round = (value: number) => Number(value.toFixed(precision))
 
   return `${round(h)} ${round(s)}% ${round(l)}%`

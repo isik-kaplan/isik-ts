@@ -17,12 +17,12 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [files.md](files.md) - browser file/image helpers (MIME guessing, canvas re-encoding, base64)
 - [cookies.md](cookies.md) - `getCookie`, `setCookie`, `removeCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
-- [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHslTriplet`
+- [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHSLTriplet`
 
 ## React (`@isikk/core/hooks`)
 
 - [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`,
-  `useApiSubmit`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
+  `useAPISubmit`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
 ## Django REST framework (`@isikk/core/drf`)

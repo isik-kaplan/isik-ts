@@ -15,7 +15,7 @@ const dist = path.join(root, 'dist')
 
 const read = (relativePath: string) => readFileSync(path.join(dist, relativePath), 'utf8')
 
-const packageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as {
+const packageJSON = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as {
   exports: Record<string, Record<string, string>>
 }
 
@@ -78,7 +78,7 @@ describe('next/config build output', () => {
 })
 
 describe('package exports', () => {
-  const conditions = Object.keys(packageJson.exports['./next/config'])
+  const conditions = Object.keys(packageJSON.exports['./next/config'])
 
   it('resolves server-side conditions before "browser"', () => {
     // Conditions match in declaration order. Next's edge compiler sets `browser` alongside
@@ -95,13 +95,13 @@ describe('package exports', () => {
   })
 
   it('puts "types" first, where TypeScript requires it', () => {
-    for (const subpath of Object.keys(packageJson.exports)) {
-      expect(Object.keys(packageJson.exports[subpath])[0]).toBe('types')
+    for (const subpath of Object.keys(packageJSON.exports)) {
+      expect(Object.keys(packageJSON.exports[subpath])[0]).toBe('types')
     }
   })
 
   it('points every declared export at a file that exists', () => {
-    for (const [subpath, targets] of Object.entries(packageJson.exports)) {
+    for (const [subpath, targets] of Object.entries(packageJSON.exports)) {
       for (const target of Object.values(targets)) {
         expect(existsSync(path.join(root, target)), `${subpath} -> ${target}`).toBe(true)
       }

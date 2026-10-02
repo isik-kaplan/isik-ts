@@ -1,6 +1,6 @@
-type MimeType = 'image/png' | 'image/jpeg' | 'image/webp'
+type MIMEType = 'image/png' | 'image/jpeg' | 'image/webp'
 
-export function guessImageMimeType(filename: string): MimeType {
+export function guessImageMIMEType(filename: string): MIMEType {
   const withoutQueryOrHash = filename.split(/[?#]/)[0]
   // Stryker disable next-line OptionalChaining: equivalent mutant. String#split always returns at
   // least one element for any input (including ''), so .pop() here can never actually be
@@ -22,7 +22,7 @@ export function guessImageMimeType(filename: string): MimeType {
   }
 }
 
-export function isImageMimeType(mimeType: string): mimeType is MimeType {
+export function isImageMIMEType(mimeType: string): mimeType is MIMEType {
   return mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/webp'
 }
 
@@ -49,7 +49,7 @@ export function safeFileName(filename: string, maxLength: number = 255): string 
 export async function downloadAndFormatImage(
   src: string,
   name: string = 'image.png',
-  mimeType: MimeType = guessImageMimeType(name),
+  mimeType: MIMEType = guessImageMIMEType(name),
   quality: number = 1
 ): Promise<void> {
   name = safeFileName(name)
@@ -83,15 +83,15 @@ export async function downloadAndFormatImage(
     }
 
     const link = document.createElement('a')
-    const downloadUrl = URL.createObjectURL(blob)
+    const downloadURL = URL.createObjectURL(blob)
     try {
-      link.href = downloadUrl
+      link.href = downloadURL
       link.download = name
       document.body.appendChild(link)
       link.click()
     } finally {
       document.body.removeChild(link)
-      URL.revokeObjectURL(downloadUrl)
+      URL.revokeObjectURL(downloadURL)
     }
   } catch (error) {
     console.error('Failed to download image:', error)
@@ -114,7 +114,7 @@ export async function fileToBase64Native(file: File): Promise<string> {
 }
 
 export async function fileToBase64(file: File, quality: number = 1): Promise<string> {
-  if (isImageMimeType(file.type)) {
+  if (isImageMIMEType(file.type)) {
     const img = new Image()
     const url = URL.createObjectURL(file)
     try {
@@ -134,12 +134,12 @@ export async function fileToBase64(file: File, quality: number = 1): Promise<str
       }
       ctx.drawImage(img, 0, 0)
 
-      const cleanDataUrl = canvas.toDataURL(file.type, quality)
-      if (cleanDataUrl === 'data:,') {
+      const cleanDataURL = canvas.toDataURL(file.type, quality)
+      if (cleanDataURL === 'data:,') {
         return await fileToBase64Native(file)
       }
 
-      return cleanDataUrl
+      return cleanDataURL
     } finally {
       URL.revokeObjectURL(url)
     }

@@ -538,9 +538,9 @@ export type Reporter = {
 }
 
 /** What a typed client returns - openapi-fetch's result, with the status and not only the body. */
-export type ApiResult = { data?: unknown; error?: unknown; response?: Response }
+export type APIResult = { data?: unknown; error?: unknown; response?: Response }
 
-export type ApiSubmitOptions<R extends ApiResult> = {
+export type APISubmitOptions<R extends APIResult> = {
   // Default: no error, and a response that is `ok` if there is one. Override for an endpoint whose
   // success arrives as a non-2xx - allauth answers an already-logged-in visitor with a 409.
   isSuccess?: (result: R) => boolean
@@ -561,11 +561,11 @@ export type SubmitOutcome = {
   replayed: boolean
 }
 
-function succeeded(result: ApiResult): boolean {
+function succeeded(result: APIResult): boolean {
   return !result.error && (result.response === undefined || result.response.ok)
 }
 
-function outcomeOf(result: ApiResult): SubmitOutcome {
+function outcomeOf(result: APIResult): SubmitOutcome {
   return { replayed: result.response?.headers.get('Idempotent-Replayed') === 'true' }
 }
 
@@ -580,10 +580,10 @@ function outcomeOf(result: ApiResult): SubmitOutcome {
  * router here would make every caller a router consumer, including the ones that render their own
  * result.
  */
-export function useApiSubmit(reporter: Reporter) {
+export function useAPISubmit(reporter: Reporter) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  async function submit<R extends ApiResult>(call: () => Promise<R>, options: ApiSubmitOptions<R>): Promise<boolean> {
+  async function submit<R extends APIResult>(call: () => Promise<R>, options: APISubmitOptions<R>): Promise<boolean> {
     setIsSubmitting(true)
     let result: R
     try {
@@ -656,7 +656,7 @@ function fromIssues(issues: ReadonlyArray<StandardIssue>): FormErrors {
 /**
  * Form state, validation, and the submit tail, as one object.
  *
- * The submit half is `useApiSubmit`, composed rather than reimplemented, because half the writes in
+ * The submit half is `useAPISubmit`, composed rather than reimplemented, because half the writes in
  * a real app are a button or a switch with no form behind them, and those use it directly. Composing
  * is what puts the server's 400 field errors into the same `formErrors` the schema writes to, so a
  * refusal from either side renders in the same place.
@@ -675,7 +675,7 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   options?: IdempotencyKeyOptions
 ) {
   const form = useFormState<InputOf<S>>(initialState)
-  const { isSubmitting, submit: submitToApi } = useApiSubmit(reporter)
+  const { isSubmitting, submit: submitToAPI } = useAPISubmit(reporter)
   const { keyFor, used } = useIdempotencyKey(options)
   // Typed against this call's concrete S, which a generic S cannot be checked against here - the
   // shape, a list of messages per field plus non_field_errors, is the same.
@@ -724,13 +724,13 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
    * The key is spent before `onSuccess` runs, so a submit made from there is a new attempt. A refusal
    * or a throw keeps it: the same payload sent again is the same attempt.
    */
-  async function submit<R extends ApiResult>(
+  async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
-    options: Omit<ApiSubmitOptions<R>, 'setFormErrors'>
+    options: Omit<APISubmitOptions<R>, 'setFormErrors'>
   ): Promise<boolean> {
     const result = record(await schema['~standard'].validate(form.formState))
     if (result.issues) return false
-    return submitToApi(() => call(result.value, keyFor(result.value)), {
+    return submitToAPI(() => call(result.value, keyFor(result.value)), {
       ...options,
       setFormErrors: acceptServerErrors,
       onSuccess: (response, outcome) => {

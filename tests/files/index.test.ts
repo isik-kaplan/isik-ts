@@ -7,8 +7,8 @@ import {
   escapeName,
   fileToBase64,
   fileToBase64Native,
-  guessImageMimeType,
-  isImageMimeType,
+  guessImageMIMEType,
+  isImageMIMEType,
   safeFileName,
 } from '../../src/files'
 
@@ -32,40 +32,40 @@ function createMockImage(shouldSucceed: boolean = true) {
   }
 }
 
-describe('guessImageMimeType', () => {
+describe('guessImageMIMEType', () => {
   it('maps common extensions to their mime type', () => {
-    expect(guessImageMimeType('a.png')).toBe('image/png')
-    expect(guessImageMimeType('a.jpg')).toBe('image/jpeg')
-    expect(guessImageMimeType('a.jpeg')).toBe('image/jpeg')
-    expect(guessImageMimeType('a.jfif')).toBe('image/jpeg')
-    expect(guessImageMimeType('a.webp')).toBe('image/webp')
+    expect(guessImageMIMEType('a.png')).toBe('image/png')
+    expect(guessImageMIMEType('a.jpg')).toBe('image/jpeg')
+    expect(guessImageMIMEType('a.jpeg')).toBe('image/jpeg')
+    expect(guessImageMIMEType('a.jfif')).toBe('image/jpeg')
+    expect(guessImageMIMEType('a.webp')).toBe('image/webp')
   })
 
   it('defaults to png for unknown or missing extensions', () => {
-    expect(guessImageMimeType('a.bmp')).toBe('image/png')
-    expect(guessImageMimeType('noextension')).toBe('image/png')
+    expect(guessImageMIMEType('a.bmp')).toBe('image/png')
+    expect(guessImageMIMEType('noextension')).toBe('image/png')
   })
 
   it('ignores query strings and hash fragments when reading the extension', () => {
-    expect(guessImageMimeType('https://cdn.example.com/photo.jpg?w=800&h=600')).toBe('image/jpeg')
-    expect(guessImageMimeType('https://cdn.example.com/photo.webp#preview')).toBe('image/webp')
+    expect(guessImageMIMEType('https://cdn.example.com/photo.jpg?w=800&h=600')).toBe('image/jpeg')
+    expect(guessImageMIMEType('https://cdn.example.com/photo.webp#preview')).toBe('image/webp')
   })
 
   test.prop([fc.string()])('always returns one of the three supported mime types, for any input', (value) => {
-    expect(isImageMimeType(guessImageMimeType(value))).toBe(true)
+    expect(isImageMIMEType(guessImageMIMEType(value))).toBe(true)
   })
 })
 
-describe('isImageMimeType', () => {
+describe('isImageMIMEType', () => {
   it('accepts the three supported mime types', () => {
-    expect(isImageMimeType('image/png')).toBe(true)
-    expect(isImageMimeType('image/jpeg')).toBe(true)
-    expect(isImageMimeType('image/webp')).toBe(true)
+    expect(isImageMIMEType('image/png')).toBe(true)
+    expect(isImageMIMEType('image/jpeg')).toBe(true)
+    expect(isImageMIMEType('image/webp')).toBe(true)
   })
 
   it('rejects anything else', () => {
-    expect(isImageMimeType('image/gif')).toBe(false)
-    expect(isImageMimeType('text/plain')).toBe(false)
+    expect(isImageMIMEType('image/gif')).toBe(false)
+    expect(isImageMIMEType('text/plain')).toBe(false)
   })
 })
 

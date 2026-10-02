@@ -90,12 +90,12 @@ The returned function keeps its identity across renders, so it is safe in a depe
 An `Idempotency-Key` that belongs to the **attempt**, not the call. A key minted per call protects nothing: a person who presses submit again after a lost response makes a second call with a second key, and the server does the work twice. `keyFor(payload)` answers the same key for as long as the payload is the same, and a new one the moment it changes. `used()` ends the attempt once the server accepted it.
 
 ```tsx
-import { useApiSubmit, useIdempotencyKey } from '@isikk/core/hooks'
+import { useAPISubmit, useIdempotencyKey } from '@isikk/core/hooks'
 
 import { toast } from 'sonner'
 
 function PayButton({ amount }: { amount: number }) {
-  const { isSubmitting, submit } = useApiSubmit(toast)
+  const { isSubmitting, submit } = useAPISubmit(toast)
   const { keyFor, used } = useIdempotencyKey()
 
   return (
@@ -124,19 +124,19 @@ function PayButton({ amount }: { amount: number }) {
 
 `useIdempotencyKeyOf(values, options?)` is the same thing read during render, returning `{ key, used }`, for a caller that wants the key as a value. Prefer `useIdempotencyKey` where the payload is at hand when sending: this one keys the values as rendered, which are not always what is sent - a schema's `.trim()` turns two values into one payload, and this gives them two keys. `used()` re-renders, so `key` is fresh after it.
 
-## useApiSubmit
+## useAPISubmit
 
 The tail every write shares: a submitting flag, the call, and the server's refusal put where a person can read it. Refusals are read as Django REST framework writes them (see [drf.md](drf.md)).
 
 It takes a `Reporter` - `{ success(message), error(message) }` - because a library cannot pick the app's toast. sonner's `toast` has that shape already:
 
 ```tsx
-import { useApiSubmit } from '@isikk/core/hooks'
+import { useAPISubmit } from '@isikk/core/hooks'
 
 import { toast } from 'sonner'
 
 function RevokeButton({ id }: { id: string }) {
-  const { isSubmitting, submit } = useApiSubmit(toast)
+  const { isSubmitting, submit } = useAPISubmit(toast)
   const router = useRouter()
 
   return (
@@ -165,7 +165,7 @@ function RevokeButton({ id }: { id: string }) {
 
 ## useValidatedFormState
 
-`useFormState`, a schema, and `useApiSubmit`, composed. The schema is any [Standard Schema](https://standardschema.dev) - zod, valibot, ArkType - so none of them is a dependency of this package.
+`useFormState`, a schema, and `useAPISubmit`, composed. The schema is any [Standard Schema](https://standardschema.dev) - zod, valibot, ArkType - so none of them is a dependency of this package.
 
 ```tsx
 import { useValidatedFormState } from '@isikk/core/hooks'

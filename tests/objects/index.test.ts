@@ -53,7 +53,7 @@ describe('requireExclusiveKeys', () => {
   type Options = { url?: string; host?: string; port?: number; db?: number }
 
   const conditions: Record<string, Array<keyof Options>> = {
-    byUrl: ['url'],
+    byURL: ['url'],
     byHost: ['host', 'port'],
   }
 
