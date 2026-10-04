@@ -565,6 +565,12 @@ export type APISubmitOptions<R extends APIResult> = {
   // form behind it wants. Only ever called with errors there are.
   setFormErrors?: (errors: FormErrors) => void
   onSuccess?: (result: R, outcome: SubmitOutcome) => void
+  // The screen leaves on success - `onSuccess` navigates. Keeps `isSubmitting` set and refuses
+  // another submit from then on, because an app-router navigation is a fetch, not a frame, and the
+  // old screen stays mounted and clickable while it runs. The price: a navigation that is cancelled
+  // or fails leaves the form disabled until a reload. For a write that is the right way round - a
+  // dead button is recoverable, a second charge is not.
+  leavesOnSuccess?: boolean
 }
 
 export type SubmitOutcome = {
@@ -591,22 +597,39 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  *
  * Refreshing or navigating after success stays at the call site, through `onSuccess`. Reaching for a
  * router here would make every caller a router consumer, including the ones that render their own
- * result.
+ * result. A caller that navigates says so with `leavesOnSuccess`.
+ *
+ * A submit made while another is in flight is refused - it resolves to `false` without making the
+ * call. `isSubmitting` disables a button only once React commits, so two clicks in one frame would
+ * otherwise both get through.
  */
 export function useAPISubmit(reporter: Reporter, envelope: ErrorEnvelope = drfEnvelope) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // State answers too late to guard with: it changes on the next commit, not on this call.
+  const locked = useRef(false)
+
+  function release() {
+    locked.current = false
+    setIsSubmitting(false)
+  }
 
   async function submit<R extends APIResult>(call: () => Promise<R>, options: APISubmitOptions<R>): Promise<boolean> {
+    if (locked.current) return false
+    locked.current = true
     setIsSubmitting(true)
     let result: R
     try {
       result = await call()
-    } finally {
+    } catch (error) {
       // A call that throws is the caller's to handle, but it must not leave the form locked.
-      setIsSubmitting(false)
+      release()
+      throw error
     }
 
-    if ((options.isSuccess ?? succeeded)(result)) {
+    const isSuccess = (options.isSuccess ?? succeeded)(result)
+    if (!(isSuccess && options.leavesOnSuccess)) release()
+
+    if (isSuccess) {
       if (options.success) reporter.success(options.success)
       options.onSuccess?.(result, outcomeOf(result))
       return true

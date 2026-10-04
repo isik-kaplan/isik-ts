@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-04
+
+### Added
+
+- `leavesOnSuccess` on `useAPISubmit`'s and `useValidatedFormState`'s submit options: for a form
+  whose `onSuccess` navigates, `isSubmitting` stays set after the success and later submits are
+  refused, so the old screen cannot send the write again while the next route loads.
+
+### Fixed
+
+- `useAPISubmit` refuses a submit made while another is in flight - it resolves to `false` without
+  making the call. Before, two clicks in one frame both got through, because `isSubmitting` only
+  disables a button once React commits.
+
 ## [0.11.0] - 2026-10-04
 
 ### Added

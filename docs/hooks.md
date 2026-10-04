@@ -162,6 +162,8 @@ function RevokeButton({ id }: { id: string }) {
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
 - A `call` that throws releases `isSubmitting` and rethrows.
 - Refreshing or navigating stays at the call site, through `onSuccess` - reaching for a router inside would make every caller a router consumer.
+- **A form that navigates on success passes `leavesOnSuccess: true`.** `isSubmitting` then stays set after the success, and every later submit is refused, because an app-router navigation is a fetch rather than a frame and the old screen stays mounted - and clickable - while it runs. The price is that a navigation that is cancelled or fails leaves the form disabled until a reload: a dead button is recoverable, a second write is not.
+- A submit made while another is in flight is refused: it resolves to `false` and its call is never made. `disabled={isSubmitting}` only takes effect once React commits, so this is what stops two clicks in one frame.
 - A second argument, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, allauthEnvelope)` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, another 4xx for its sentence.
 
 ## useValidatedFormState

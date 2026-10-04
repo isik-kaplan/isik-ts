@@ -226,6 +226,120 @@ describe('useAPISubmit', () => {
       expect(report.error).not.toHaveBeenCalled()
     })
   })
+
+  describe('in-flight guard', () => {
+    function pending() {
+      let finish!: (value: APIResult) => void
+      const call = vi.fn(() => new Promise<APIResult>((resolve) => (finish = resolve)))
+      return { call, finish: (value: APIResult) => finish(value) }
+    }
+
+    it('refuses a second submit while the first is in flight, without making its call', async () => {
+      const { result } = renderHook(() => useAPISubmit(reporter()))
+      const first = pending()
+      const second = vi.fn(async () => ({}))
+      let firstSubmitted!: Promise<boolean>
+      let secondSubmitted!: Promise<boolean>
+      // Both in one act, so React has not committed between them - two clicks in one frame.
+      act(() => {
+        firstSubmitted = result.current.submit(first.call, { failure: 'Nope.' })
+        secondSubmitted = result.current.submit(second, { failure: 'Nope.' })
+      })
+      expect(await secondSubmitted).toBe(false)
+      expect(second).not.toHaveBeenCalled()
+
+      await act(async () => {
+        first.finish({})
+        expect(await firstSubmitted).toBe(true)
+      })
+    })
+
+    it.each([
+      ['a success', {}],
+      ['a refusal', refusal(500, {})],
+    ])('accepts another submit after %s', async (_, outcome) => {
+      const { result } = renderHook(() => useAPISubmit(reporter()))
+      const next = vi.fn(async () => ({}))
+      await act(async () => {
+        await result.current.submit(async () => outcome, { failure: 'Nope.' })
+      })
+      await act(async () => {
+        expect(await result.current.submit(next, { failure: 'Nope.' })).toBe(true)
+      })
+      expect(next).toHaveBeenCalledOnce()
+    })
+
+    it('accepts another submit after a throw', async () => {
+      const { result } = renderHook(() => useAPISubmit(reporter()))
+      await act(async () => {
+        await expect(
+          result.current.submit(
+            async () => {
+              throw new Error('offline')
+            },
+            { failure: 'Nope.' }
+          )
+        ).rejects.toThrow('offline')
+      })
+      const next = vi.fn(async () => ({}))
+      await act(async () => {
+        expect(await result.current.submit(next, { failure: 'Nope.' })).toBe(true)
+      })
+    })
+  })
+
+  describe('leavesOnSuccess', () => {
+    it('keeps isSubmitting set after a success, and refuses every submit after it', async () => {
+      const onSuccess = vi.fn()
+      const { result } = renderHook(() => useAPISubmit(reporter()))
+      await act(async () => {
+        expect(
+          await result.current.submit(async () => ({}), { failure: 'Nope.', onSuccess, leavesOnSuccess: true })
+        ).toBe(true)
+      })
+      expect(onSuccess).toHaveBeenCalledOnce()
+      expect(result.current.isSubmitting).toBe(true)
+
+      const again = vi.fn(async () => ({}))
+      await act(async () => {
+        expect(await result.current.submit(again, { failure: 'Nope.' })).toBe(false)
+      })
+      expect(again).not.toHaveBeenCalled()
+    })
+
+    it('releases on a refusal, since the screen stays', async () => {
+      const report = reporter()
+      const { result } = renderHook(() => useAPISubmit(report))
+      await act(async () => {
+        await result.current.submit(async () => refusal(500, {}), { failure: 'Nope.', leavesOnSuccess: true })
+      })
+      expect(result.current.isSubmitting).toBe(false)
+      expect(report.error).toHaveBeenCalledExactlyOnceWith('Nope.')
+    })
+
+    it('releases on a throw', async () => {
+      const { result } = renderHook(() => useAPISubmit(reporter()))
+      await act(async () => {
+        await expect(
+          result.current.submit(
+            async () => {
+              throw new Error('offline')
+            },
+            { failure: 'Nope.', leavesOnSuccess: true }
+          )
+        ).rejects.toThrow('offline')
+      })
+      expect(result.current.isSubmitting).toBe(false)
+    })
+
+    it('is honored by useValidatedFormState', async () => {
+      const { result } = renderForm()
+      await act(async () => {
+        await result.current.submit(async () => ({}), { failure: 'Nope.', leavesOnSuccess: true })
+      })
+      expect(result.current.isSubmitting).toBe(true)
+    })
+  })
 })
 
 const schema = z
