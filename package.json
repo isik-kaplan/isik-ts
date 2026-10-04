@@ -1,6 +1,6 @@
 {
   "name": "@isikk/core",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Everyday TypeScript utilities.",
   "license": "MIT",
   "author": {
@@ -42,6 +42,16 @@
       "types": "./dist/drf/index.d.ts",
       "import": "./dist/drf/index.js",
       "require": "./dist/drf/index.cjs"
+    },
+    "./allauth": {
+      "types": "./dist/allauth/index.d.ts",
+      "import": "./dist/allauth/index.js",
+      "require": "./dist/allauth/index.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js",
+      "require": "./dist/testing/index.cjs"
     },
     "./node": {
       "types": "./dist/node/index.d.ts",
@@ -110,6 +120,8 @@
     }
   },
   "peerDependencies": {
+    "@testing-library/dom": ">=10",
+    "dom-accessibility-api": ">=0.5",
     "next": ">=14",
     "react": ">=18"
   },
@@ -118,6 +130,12 @@
       "optional": true
     },
     "next": {
+      "optional": true
+    },
+    "@testing-library/dom": {
+      "optional": true
+    },
+    "dom-accessibility-api": {
       "optional": true
     }
   },
@@ -133,6 +151,7 @@
     "@types/node": "^20.17.9",
     "@types/react": "^19.1.1",
     "@vitest/coverage-v8": "^4.1.10",
+    "dom-accessibility-api": "^0.7.1",
     "eslint": "^9.9.1",
     "eslint-config-prettier": "^9.1.0",
     "eslint-config-standard": "^17.1.0",

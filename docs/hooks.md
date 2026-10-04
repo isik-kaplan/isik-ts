@@ -162,6 +162,7 @@ function RevokeButton({ id }: { id: string }) {
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
 - A `call` that throws releases `isSubmitting` and rethrows.
 - Refreshing or navigating stays at the call site, through `onSuccess` - reaching for a router inside would make every caller a router consumer.
+- A second argument, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, allauthEnvelope)` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, another 4xx for its sentence.
 
 ## useValidatedFormState
 
@@ -193,10 +194,27 @@ function RenameForm() {
 Returns everything `useFormState` does, plus `validate`, `isSubmitting` and `submit`.
 
 - `submit` validates first and never makes the call when the schema refuses. The call receives the schema's **output**, so a `.trim()` or a coercion is not lost.
-- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A form that does not want one ignores it. The fourth argument, `{ generateKey }`, replaces `crypto.randomUUID()`.
+- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A form that does not want one ignores it. The fourth argument, `{ generateKey, envelope }`, replaces `crypto.randomUUID()` and reads another server's refusals, as `useAPISubmit`'s second argument does.
 - The schema's issues and the server's 400 land in the same `formErrors`, so a refusal from either side renders in the same place. An issue is filed under the first segment of its path; one with no path goes under `non_field_errors`.
 - A server error naming a field the form state does not hold joins `non_field_errors` rather than being dropped - a serializer can refuse a column this form never shows.
 - `validate()` returns a `boolean`, so `if (!validate()) return` works. It needs a synchronous schema - every zod or valibot schema without an async refinement - and throws a `TypeError` for one that answers with a Promise, rather than returning a Promise that would always read as valid. `submit` awaits the schema, so it accepts either.
+
+## createSubmitHooks
+
+`useAPISubmit` and `useValidatedFormState` with the reporter already supplied, so an app names its toast once rather than once per hook:
+
+```tsx
+// lib/hooks.ts
+import { createSubmitHooks } from '@isikk/core/hooks'
+
+import { toast } from 'sonner'
+
+export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
+```
+
+The returned hooks take every argument the originals do except the reporter. An optional second argument binds an `ErrorEnvelope` the same way: `createSubmitHooks(toast, allauthEnvelope)` for an app's allauth surfaces.
+
+A factory rather than a provider or a module-level default: a provider is a component, and a default is a global that leaks between tests and turns a forgotten reporter from a type error into silence at runtime.
 
 ## useFilePaste
 

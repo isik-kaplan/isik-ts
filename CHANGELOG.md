@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- `@isikk/core/testing`, with `expectUniqueAccessibleNames(container?, roles?)`: throws if two
+  controls of the same role share an accessible name - the case that makes an exact
+  `getByRole(role, { name })` query throw. Checks the interactive roles by default. Needs
+  `@testing-library/dom` and `dom-accessibility-api`, both optional peer dependencies.
+- `@isikk/core/allauth`: `toFormErrors`, `detailOf` and `allauthEnvelope`, readers for
+  django-allauth's headless `{status, errors: [{message, code, param}]}` refusals.
+- `ErrorEnvelope` in `@isikk/core/hooks`: `useAPISubmit(reporter, envelope?)` and
+  `useValidatedFormState`'s `{ envelope }` option read another server's refusals. The default is
+  still DRF's, so `useAPISubmit(toast, allauthEnvelope)` is how an allauth surface gets the server's
+  own sentence instead of the generic `failure`.
+- `createSubmitHooks(reporter, envelope?)` in `@isikk/core/hooks`: `useAPISubmit` and
+  `useValidatedFormState` with the reporter (and envelope) already bound, so an app names its toast
+  once rather than once per hook.
+- [docs/naming.md](docs/naming.md): the naming rule every exported name follows.
+
+### Changed
+
+- `useValidatedFormState`'s fourth argument is typed `ValidatedFormStateOptions` - the idempotency
+  options plus `envelope`.
+- British spellings in comments and test names are now American, per the naming rule.
+
 ## [0.10.0] - 2026-10-02
 
 ### Changed
@@ -18,7 +43,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `guessImageMimeType` -> `guessImageMIMEType` in `@isikk/core`
   - `isImageMimeType` -> `isImageMIMEType` in `@isikk/core`
 
-  Behaviour is unchanged; a consumer's compiler names every call site on the bump.
+  Behavior is unchanged; a consumer's compiler names every call site on the bump.
 
 ## [0.9.0] - 2026-10-02
 

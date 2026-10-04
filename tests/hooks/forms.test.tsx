@@ -3,8 +3,9 @@ import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { allauthEnvelope } from '../../src/allauth'
 import type { APIResult, Reporter, StandardSchemaV1 } from '../../src/hooks'
-import { useAPISubmit, useValidatedFormState } from '../../src/hooks'
+import { createSubmitHooks, useAPISubmit, useValidatedFormState } from '../../src/hooks'
 
 function reporter() {
   return { success: vi.fn(), error: vi.fn() } satisfies Reporter
@@ -551,5 +552,91 @@ describe('useValidatedFormState', () => {
       expect(call).toHaveBeenCalledWith(expect.anything(), '0-0-0-0-0')
       uuid.mockRestore()
     })
+  })
+})
+
+describe('createSubmitHooks', () => {
+  it('reports through the bound reporter from useAPISubmit', async () => {
+    const report = reporter()
+    const hooks = createSubmitHooks(report)
+    const { result } = renderHook(() => hooks.useAPISubmit())
+    await act(async () => {
+      await result.current.submit(async () => refusal(500, {}), { failure: 'Could not save.' })
+    })
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Could not save.')
+  })
+
+  it('reports through the bound reporter from useValidatedFormState', async () => {
+    const report = reporter()
+    const hooks = createSubmitHooks(report)
+    const { result } = renderHook(() => hooks.useValidatedFormState(schema, valid))
+    await act(async () => {
+      await result.current.submit(async () => ({ response: response(200) }), { failure: 'Nope.', success: 'Saved.' })
+    })
+    expect(report.success).toHaveBeenCalledExactlyOnceWith('Saved.')
+  })
+
+  it('passes the idempotency options through', async () => {
+    const call = vi.fn(async () => ({}))
+    const hooks = createSubmitHooks(reporter())
+    const { result } = renderHook(() => hooks.useValidatedFormState(schema, valid, { generateKey: () => 'bound-key' }))
+    await act(async () => {
+      await result.current.submit(call, { failure: 'Nope.' })
+    })
+    expect(call).toHaveBeenCalledWith({ name: 'Ada', password: 'x', confirm: 'x' }, 'bound-key')
+  })
+})
+
+describe('error envelope', () => {
+  const taken = { status: 400, errors: [{ message: 'That email is taken.', code: 'email_taken', param: 'name' }] }
+  const throttled = { status: 429, errors: [{ message: 'Too many requests.', code: 'too_many' }] }
+
+  async function submitThrough(hook: () => ReturnType<typeof useAPISubmit>, result: APIResult) {
+    const { result: rendered } = renderHook(hook)
+    await act(async () => {
+      await rendered.current.submit(async () => result, { failure: 'Could not save.' })
+    })
+  }
+
+  it('reads an allauth refusal through useAPISubmit when given the allauth envelope', async () => {
+    const report = reporter()
+    await submitThrough(() => useAPISubmit(report, allauthEnvelope), refusal(400, taken))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('That email is taken.')
+  })
+
+  it("reads allauth's sentence on another 4xx", async () => {
+    const report = reporter()
+    await submitThrough(() => useAPISubmit(report, allauthEnvelope), refusal(429, throttled))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests.')
+  })
+
+  it('reads an allauth refusal as a plain failure under the default envelope', async () => {
+    const report = reporter()
+    await submitThrough(() => useAPISubmit(report), refusal(400, taken))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Could not save.')
+  })
+
+  it('puts allauth field errors beside the field in useValidatedFormState', async () => {
+    const { result } = renderHook(() => useValidatedFormState(schema, valid, reporter(), { envelope: allauthEnvelope }))
+    await act(async () => {
+      await result.current.submit(async () => refusal(400, taken), { failure: 'Nope.' })
+    })
+    expect(result.current.formErrors).toEqual({ name: ['That email is taken.'] })
+  })
+
+  it('binds the envelope in createSubmitHooks for useAPISubmit', async () => {
+    const report = reporter()
+    const hooks = createSubmitHooks(report, allauthEnvelope)
+    await submitThrough(() => hooks.useAPISubmit(), refusal(429, throttled))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests.')
+  })
+
+  it('binds the envelope in createSubmitHooks for useValidatedFormState', async () => {
+    const hooks = createSubmitHooks(reporter(), allauthEnvelope)
+    const { result } = renderHook(() => hooks.useValidatedFormState(schema, valid))
+    await act(async () => {
+      await result.current.submit(async () => refusal(400, taken), { failure: 'Nope.' })
+    })
+    expect(result.current.formErrors).toEqual({ name: ['That email is taken.'] })
   })
 })

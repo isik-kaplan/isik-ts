@@ -22,13 +22,23 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 ## React (`@isikk/core/hooks`)
 
 - [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`,
-  `useAPISubmit`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
+  `useAPISubmit`, `createSubmitHooks`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
 ## Django REST framework (`@isikk/core/drf`)
 
 - [drf.md](drf.md) - `toFormErrors`, `detailOf`, `messagesOf`: readers for DRF's two error shapes
   (peer: none, pure functions)
+
+## django-allauth (`@isikk/core/allauth`)
+
+- [allauth.md](allauth.md) - `toFormErrors`, `detailOf`, `allauthEnvelope`: readers for allauth's
+  headless error shape, for `useAPISubmit` and friends (peer: none, pure functions)
+
+## Testing (`@isikk/core/testing`)
+
+- [testing.md](testing.md) - `expectUniqueAccessibleNames` (optional peers: `@testing-library/dom`,
+  `dom-accessibility-api`)
 
 ## Node (`@isikk/core/node`)
 
@@ -41,6 +51,10 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
   `getCookie`/`removeCookie` Server Actions, `getSafeRedirect`, `getRequestOrigin`,
   `createSessionGuards`, `publicConfig` (peer dep: `next`, `react` for `createSessionGuards` and
   `publicConfig`)
+
+## Conventions
+
+- [naming.md](naming.md) - the naming rule every exported name follows
 
 ## Everything else
 

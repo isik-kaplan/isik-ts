@@ -16,7 +16,7 @@ function renderKey() {
 }
 
 describe('useIdempotencyKey', () => {
-  // A retry after a lost response has to be recognised as the same attempt.
+  // A retry after a lost response has to be recognized as the same attempt.
   it('answers the same key for the same payload', () => {
     const result = renderKey()
     expect(result.current.keyFor({ amount: 5 })).toBe('key-1')

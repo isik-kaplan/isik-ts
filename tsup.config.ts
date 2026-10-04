@@ -5,6 +5,8 @@ export default defineConfig({
     index: 'src/index.ts',
     'hooks/index': 'src/hooks/index.ts',
     'drf/index': 'src/drf/index.ts',
+    'allauth/index': 'src/allauth/index.ts',
+    'testing/index': 'src/testing/index.ts',
     'node/index': 'src/node/index.ts',
     'next/middleware/index': 'src/next/middleware.ts',
     'next/request/index': 'src/next/request.ts',

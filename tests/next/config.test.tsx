@@ -99,7 +99,7 @@ describe('publicConfig (server)', () => {
     expect(CONFIG.FEATURES.NEW_CHECKOUT).toBe(true)
   })
 
-  it('honours missingDefault, so an unset variable is not automatically fatal', () => {
+  it('honors missingDefault, so an unset variable is not automatically fatal', () => {
     vi.stubEnv('SENTRY_DSN', undefined)
 
     const { CONFIG } = publicConfig({ SENTRY_DSN: string({ missingDefault: '' }) }, { globalKey: KEY })

@@ -537,6 +537,18 @@ export type Reporter = {
   error: (message: string) => unknown
 }
 
+/**
+ * How a server's refusal is read: its field errors, and the one sentence it wrote for a person.
+ * `@isikk/core/drf`'s readers are the default; `allauthEnvelope` from `@isikk/core/allauth` reads
+ * django-allauth's headless API, and anything with these two functions reads another server.
+ */
+export type ErrorEnvelope = {
+  toFormErrors: (body: unknown) => FormErrors | undefined
+  detailOf: (body: unknown) => string | undefined
+}
+
+const drfEnvelope: ErrorEnvelope = { toFormErrors, detailOf }
+
 /** What a typed client returns - openapi-fetch's result, with the status and not only the body. */
 export type APIResult = { data?: unknown; error?: unknown; response?: Response }
 
@@ -573,14 +585,15 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  * The tail every write shares: a submitting flag, the call, and the server's refusal put where a
  * person can read it.
  *
- * Refusals are read as Django REST framework writes them - see `@isikk/core/drf`. Anything that does
- * not match falls back to `failure`, so another server's errors read as a plain failure, not as none.
+ * Refusals are read as Django REST framework writes them - see `@isikk/core/drf` - unless another
+ * `envelope` is given. Anything the envelope cannot read falls back to `failure`, so another server's
+ * errors read as a plain failure, not as none.
  *
  * Refreshing or navigating after success stays at the call site, through `onSuccess`. Reaching for a
  * router here would make every caller a router consumer, including the ones that render their own
  * result.
  */
-export function useAPISubmit(reporter: Reporter) {
+export function useAPISubmit(reporter: Reporter, envelope: ErrorEnvelope = drfEnvelope) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function submit<R extends APIResult>(call: () => Promise<R>, options: APISubmitOptions<R>): Promise<boolean> {
@@ -600,15 +613,16 @@ export function useAPISubmit(reporter: Reporter) {
     }
 
     const status = result.response?.status
-    const fields = status === 400 ? toFormErrors(result.error) : undefined
+    const fields = status === 400 ? envelope.toFormErrors(result.error) : undefined
     if (fields && options.setFormErrors) {
       options.setFormErrors(fields)
       return false
     }
 
-    // A 5xx says nothing worth reading and often is not JSON at all, so only a refusal DRF wrote for
-    // a person is shown in its own words. Never reaching the server at all reads the same way.
-    const detail = status === undefined || status >= 500 ? undefined : detailOf(result.error)
+    // A 5xx says nothing worth reading and often is not JSON at all, so only a refusal the server
+    // wrote for a person is shown in its own words. Never reaching the server at all reads the same
+    // way.
+    const detail = status === undefined || status >= 500 ? undefined : envelope.detailOf(result.error)
     reporter.error(detail ?? messagesOf(fields) ?? options.failure)
     return false
   }
@@ -635,6 +649,11 @@ export type StandardSchemaV1<Input = unknown, Output = Input> = {
     readonly validate: (value: unknown) => StandardResult<Output> | Promise<StandardResult<Output>>
     readonly types?: { readonly input: Input; readonly output: Output } | undefined
   }
+}
+
+export type ValidatedFormStateOptions = IdempotencyKeyOptions & {
+  // How the server's refusals are read - see `useAPISubmit`.
+  envelope?: ErrorEnvelope
 }
 
 type InputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['input']
@@ -665,17 +684,17 @@ function fromIssues(issues: ReadonlyArray<StandardIssue>): FormErrors {
  * refinement is. `submit` is async regardless, so it accepts either.
  *
  * Every submit carries an idempotency key from `useIdempotencyKey`, keyed on the schema's output, so a
- * resubmit after a lost response is recognised as the same attempt. A form that does not want one
+ * resubmit after a lost response is recognized as the same attempt. A form that does not want one
  * ignores the call's second argument - nothing here touches the network.
  */
 export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   schema: S,
   initialState: InputOf<S>,
   reporter: Reporter,
-  options?: IdempotencyKeyOptions
+  options?: ValidatedFormStateOptions
 ) {
   const form = useFormState<InputOf<S>>(initialState)
-  const { isSubmitting, submit: submitToAPI } = useAPISubmit(reporter)
+  const { isSubmitting, submit: submitToAPI } = useAPISubmit(reporter, options?.envelope)
   const { keyFor, used } = useIdempotencyKey(options)
   // Typed against this call's concrete S, which a generic S cannot be checked against here - the
   // shape, a list of messages per field plus non_field_errors, is the same.
@@ -741,4 +760,27 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   }
 
   return { ...form, validate, isSubmitting, submit }
+}
+
+/**
+ * `useAPISubmit` and `useValidatedFormState` with the reporter already supplied, so an app names its
+ * toast once rather than once per hook:
+ *
+ *     export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
+ *
+ * A factory rather than a provider or a module-level default: a provider is a component, and a
+ * default is a global that leaks between tests and turns a forgotten reporter from a type error into
+ * silence at runtime. The hooks it returns take no reporter, so there is nothing to forget.
+ *
+ * `envelope` is bound the same way - an allauth surface passes `allauthEnvelope` here once.
+ */
+export function createSubmitHooks(reporter: Reporter, envelope?: ErrorEnvelope) {
+  return {
+    useAPISubmit: () => useAPISubmit(reporter, envelope),
+    useValidatedFormState: <S extends StandardSchemaV1<object>>(
+      schema: S,
+      initialState: InputOf<S>,
+      options?: IdempotencyKeyOptions
+    ) => useValidatedFormState(schema, initialState, reporter, { ...options, envelope }),
+  }
 }
