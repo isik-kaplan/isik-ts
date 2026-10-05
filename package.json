@@ -1,6 +1,6 @@
 {
   "name": "@isikk/core",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Everyday TypeScript utilities.",
   "license": "MIT",
   "author": {
@@ -47,6 +47,11 @@
       "types": "./dist/allauth/index.d.ts",
       "import": "./dist/allauth/index.js",
       "require": "./dist/allauth/index.cjs"
+    },
+    "./webauthn": {
+      "types": "./dist/webauthn/index.d.ts",
+      "import": "./dist/webauthn/index.js",
+      "require": "./dist/webauthn/index.cjs"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
@@ -150,6 +155,7 @@
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
     "@types/node": "^20.17.9",
     "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^4.1.10",
     "dom-accessibility-api": "^0.7.1",
     "eslint": "^9.9.1",

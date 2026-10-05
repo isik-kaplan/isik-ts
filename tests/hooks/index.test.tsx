@@ -3,9 +3,11 @@ import { act, render, renderHook } from '@testing-library/react'
 import type { ChangeEvent } from 'react'
 import { useEffect } from 'react'
 
-import { describe, expect, it, vi } from 'vitest'
+import { renderToString } from 'react-dom/server'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  useBrowserSupportsPasskeys,
   useEffectAfterMount,
   useElementAttributes,
   useFileDragDrop,
@@ -289,6 +291,32 @@ describe('useIsMounted', () => {
     unmount()
     resolve()
     expect(await settled).toBe(false)
+  })
+})
+
+describe('useBrowserSupportsPasskeys', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function Probe() {
+    return <>{String(useBrowserSupportsPasskeys())}</>
+  }
+
+  it("reads the browser's answer", () => {
+    vi.stubGlobal('PublicKeyCredential', function PublicKeyCredential() {})
+    expect(renderHook(() => useBrowserSupportsPasskeys()).result.current).toBe(true)
+  })
+
+  it('reads false in a browser without WebAuthn', () => {
+    vi.stubGlobal('PublicKeyCredential', undefined)
+    expect(renderHook(() => useBrowserSupportsPasskeys()).result.current).toBe(false)
+  })
+
+  // The server cannot ask, so it renders the optimistic answer and hydration corrects it.
+  it('renders true on the server, whatever the browser will say', () => {
+    vi.stubGlobal('PublicKeyCredential', undefined)
+    expect(renderToString(<Probe />)).toBe('true')
   })
 })
 

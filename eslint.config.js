@@ -47,6 +47,9 @@ export default tseslint.config(
       'comma-dangle': 'off',
       'multiline-ternary': 'off',
       'no-undef': 'off',
+      // The core rule reads an overload signature as a redeclaration.
+      'no-redeclare': 'off',
+      '@typescript-eslint/no-redeclare': 'error',
       'no-unused-vars': 'off',
       'no-use-before-define': 'off',
       'no-global-assign': 'off',

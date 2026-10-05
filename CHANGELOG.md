@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-05
+
+### Added
+
+- `@isikk/core/webauthn`: `createCredential` and `getCredential`, which take a server's WebAuthn
+  options as JSON and answer the credential as the JSON it reads back - allauth's headless MFA
+  included. The conversions are exported too, named after the platform's:
+  `parseCreationOptionsFromJSON`, `parseRequestOptionsFromJSON` and `credentialToJSON`. Each prefers
+  the browser's own WebAuthn Level 3 conversion and falls back to a base64url one. Plus
+  `browserSupportsPasskeys()` and `inASecureContext()`, which tell "this browser cannot" apart from
+  "serve this over https".
+- `useBrowserSupportsPasskeys()` in `@isikk/core/hooks`: `browserSupportsPasskeys` for render,
+  answering `true` on the server so hydration does not mismatch.
+- `idempotencyKey: false` on `useValidatedFormState`'s submit options: the call takes the value
+  alone and no key is minted, for a write that sends none.
+
+### Fixed
+
+- The default idempotency key no longer needs a secure context. `crypto.randomUUID` is missing on a
+  page served over plain http behind a hostname or LAN IP, so `useValidatedFormState`'s `submit`
+  threw before the request left. The default now builds a v4 UUID from `crypto.getRandomValues`
+  there, and where neither exists throws an error naming `generateKey` and
+  `react-native-get-random-values`.
+
 ## [0.12.0] - 2026-10-04
 
 ### Added

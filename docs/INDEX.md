@@ -23,6 +23,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 - [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`,
   `useAPISubmit`, `createSubmitHooks`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
+  `useBrowserSupportsPasskeys`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
 ## Django REST framework (`@isikk/core/drf`)
@@ -34,6 +35,13 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 - [allauth.md](allauth.md) - `toFormErrors`, `detailOf`, `allauthEnvelope`: readers for allauth's
   headless error shape, for `useAPISubmit` and friends (peer: none, pure functions)
+
+## WebAuthn (`@isikk/core/webauthn`)
+
+- [webauthn.md](webauthn.md) - `createCredential`, `getCredential`, `parseCreationOptionsFromJSON`,
+  `parseRequestOptionsFromJSON`, `credentialToJSON`, `browserSupportsPasskeys`, `inASecureContext`:
+  passkeys against a server that speaks WebAuthn's JSON, allauth's headless MFA included (peer: none,
+  browser APIs only)
 
 ## Testing (`@isikk/core/testing`)
 

@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { allauthEnvelope } from '../../src/allauth'
@@ -665,6 +665,55 @@ describe('useValidatedFormState', () => {
       })
       expect(call).toHaveBeenCalledWith(expect.anything(), '0-0-0-0-0')
       uuid.mockRestore()
+    })
+
+    describe('idempotencyKey: false', () => {
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      it('mints no key and hands the call none', async () => {
+        const generateKey = vi.fn(() => 'key')
+        const call = vi.fn(async (_value: unknown) => ({}))
+        const { result } = renderHook(() => useValidatedFormState(schema, valid, reporter(), { generateKey }))
+        let ok: boolean | undefined
+        await act(async () => {
+          ok = await result.current.submit(call, { failure: 'Nope.', idempotencyKey: false })
+        })
+        expect(ok).toBe(true)
+        expect(generateKey).not.toHaveBeenCalled()
+        expect(call).toHaveBeenCalledExactlyOnceWith({ name: 'Ada', password: 'x', confirm: 'x' }, undefined)
+      })
+
+      // The case it exists for: a PATCH that sends no key, on a runtime that could not make one.
+      it('needs no generator at all', async () => {
+        vi.stubGlobal('crypto', undefined)
+        const { result } = renderForm()
+        let ok: boolean | undefined
+        await act(async () => {
+          ok = await result.current.submit(async () => ({}), { failure: 'Nope.', idempotencyKey: false })
+        })
+        expect(ok).toBe(true)
+      })
+
+      it('still sends a key when the option is true', async () => {
+        const call = vi.fn(async () => ({}))
+        const { result } = renderHook(() =>
+          useValidatedFormState(schema, valid, reporter(), { generateKey: () => 'key-1' })
+        )
+        await act(async () => {
+          await result.current.submit(call, { failure: 'Nope.', idempotencyKey: true })
+        })
+        expect(call).toHaveBeenCalledWith(expect.anything(), 'key-1')
+      })
+
+      it('refuses, at compile time, a call that reads a key it will not get', () => {
+        const { result } = renderForm()
+        const submit = () =>
+          // @ts-expect-error - with idempotencyKey: false the call takes the value alone.
+          result.current.submit(async (_value, _key: string) => ({}), { failure: 'Nope.', idempotencyKey: false })
+        expect(submit).toBeTypeOf('function')
+      })
     })
   })
 })

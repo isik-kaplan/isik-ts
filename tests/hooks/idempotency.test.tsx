@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useIdempotencyKey, useIdempotencyKeyOf } from '../../src/hooks'
 
@@ -92,6 +92,61 @@ describe('useIdempotencyKey', () => {
     const { result } = renderHook(() => useIdempotencyKey())
     expect(result.current.keyFor({ amount: 5 })).toBe('0-0-0-0-0')
     uuid.mockRestore()
+  })
+
+  // A page on plain http behind a hostname is not a secure context, so it has no randomUUID.
+  describe('without crypto.randomUUID', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    function withBytes(fill: (bytes: Uint8Array) => void) {
+      vi.stubGlobal('crypto', {
+        getRandomValues: <T extends ArrayBufferView>(array: T) => {
+          fill(array as unknown as Uint8Array)
+          return array
+        },
+      })
+      return renderHook(() => useIdempotencyKey()).result
+    }
+
+    it('builds a v4 UUID from getRandomValues', () => {
+      const result = withBytes((bytes) => bytes.forEach((_, index) => (bytes[index] = index)))
+      expect(result.current.keyFor({ amount: 5 })).toBe('00010203-0405-4607-8809-0a0b0c0d0e0f')
+    })
+
+    // Every bit set shows the version and variant bits are forced, not merely or-ed in.
+    it('sets the version and variant bits whatever the bytes', () => {
+      const result = withBytes((bytes) => bytes.fill(0xff))
+      expect(result.current.keyFor({ amount: 5 })).toBe('ffffffff-ffff-4fff-bfff-ffffffffffff')
+    })
+
+    // Fresh bytes on every draw, so a repeated key can only come from the attempt being kept.
+    it('keeps the key across retries of the same payload', () => {
+      let draws = 0
+      const result = withBytes((bytes) => bytes.fill(++draws))
+      expect(result.current.keyFor({ amount: 5 })).toBe('01010101-0101-4101-8101-010101010101')
+      expect(result.current.keyFor({ amount: 5 })).toBe('01010101-0101-4101-8101-010101010101')
+      expect(result.current.keyFor({ amount: 6 })).toBe('02020202-0202-4202-8202-020202020202')
+    })
+
+    it('names generateKey and the polyfill when there is no crypto to draw on', () => {
+      vi.stubGlobal('crypto', {})
+      const { result } = renderHook(() => useIdempotencyKey())
+      expect(() => result.current.keyFor()).toThrow(
+        new TypeError(
+          'useIdempotencyKey: this runtime has neither crypto.randomUUID nor crypto.getRandomValues - pass ' +
+            '`generateKey`, or install a polyfill such as react-native-get-random-values'
+        )
+      )
+    })
+
+    // Bare Hermes, where `crypto` itself is missing.
+    it('names generateKey when there is no crypto at all', () => {
+      vi.stubGlobal('crypto', undefined)
+      const { result } = renderHook(() => useIdempotencyKey())
+      expect(() => result.current.keyFor()).toThrow(/`generateKey`/)
+    })
   })
 
   describe('the snapshot is JSON.stringify', () => {

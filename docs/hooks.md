@@ -117,7 +117,7 @@ function PayButton({ amount }: { amount: number }) {
 - Spend it only on success. After a throw or a refusal, the same payload sent again is the same attempt.
 - `keyFor()` with no argument keys a write with no body.
 - Placing the header is the caller's - every client places it differently.
-- `generateKey` replaces `crypto.randomUUID()`, which React Native's Hermes and pages served over plain http do not have: `useIdempotencyKey({ generateKey: uuid })`.
+- The default key is a v4 UUID: `crypto.randomUUID()` where there is one, and one built from `crypto.getRandomValues()` where there is not - a page on plain http behind a hostname or a LAN IP is not a secure context, and has no `randomUUID`. Bare Hermes has neither, and minting a key there throws an error naming `generateKey`; pass one, or install `react-native-get-random-values`: `useIdempotencyKey({ generateKey: uuid })`.
 - Payloads are compared by `JSON.stringify`. A reordered object gets a new key, which is harmless. A `File` reads as `{}`, so a multipart form passes its own snapshot - file names and sizes, say - as the payload. A `BigInt` or a cycle throws.
 
 ### useIdempotencyKeyOf
@@ -196,7 +196,7 @@ function RenameForm() {
 Returns everything `useFormState` does, plus `validate`, `isSubmitting` and `submit`.
 
 - `submit` validates first and never makes the call when the schema refuses. The call receives the schema's **output**, so a `.trim()` or a coercion is not lost.
-- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A form that does not want one ignores it. The fourth argument, `{ generateKey, envelope }`, replaces `crypto.randomUUID()` and reads another server's refusals, as `useAPISubmit`'s second argument does.
+- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one. The fourth argument, `{ generateKey, envelope }`, replaces the default key generator and reads another server's refusals, as `useAPISubmit`'s second argument does.
 - The schema's issues and the server's 400 land in the same `formErrors`, so a refusal from either side renders in the same place. An issue is filed under the first segment of its path; one with no path goes under `non_field_errors`.
 - A server error naming a field the form state does not hold joins `non_field_errors` rather than being dropped - a serializer can refuse a column this form never shows.
 - `validate()` returns a `boolean`, so `if (!validate()) return` works. It needs a synchronous schema - every zod or valibot schema without an async refinement - and throws a `TypeError` for one that answers with a Promise, rather than returning a Promise that would always read as valid. `submit` awaits the schema, so it accepts either.
@@ -217,6 +217,21 @@ export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
 The returned hooks take every argument the originals do except the reporter. An optional second argument binds an `ErrorEnvelope` the same way: `createSubmitHooks(toast, allauthEnvelope)` for an app's allauth surfaces.
 
 A factory rather than a provider or a module-level default: a provider is a component, and a default is a global that leaks between tests and turns a forgotten reporter from a type error into silence at runtime.
+
+## useBrowserSupportsPasskeys
+
+`browserSupportsPasskeys()` from [webauthn.md](webauthn.md), for render. The server cannot ask the browser, so it renders `true` and hydration replaces it with the real answer, with no mismatch warning.
+
+```tsx
+import { useBrowserSupportsPasskeys } from '@isikk/core/hooks'
+
+function PasskeyButton() {
+  if (!useBrowserSupportsPasskeys()) return null
+  return <button onClick={signInWithPasskey}>Sign in with a passkey</button>
+}
+```
+
+- The optimistic answer is on purpose: a button that disappears on an old browser, rather than one that appears late on every new one.
 
 ## useFilePaste
 

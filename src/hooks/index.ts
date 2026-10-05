@@ -1,7 +1,8 @@
 import type { ChangeEvent, DependencyList, DragEvent, EffectCallback } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import { type FormErrors, detailOf, messagesOf, toFormErrors } from '../drf'
+import { browserSupportsPasskeys } from '../webauthn'
 
 export function useElementAttributes<T extends HTMLElement, K extends keyof T>(attributeKeys: K[]) {
   const ref = useRef<T | null>(null)
@@ -463,9 +464,31 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
 }
 
 export type IdempotencyKeyOptions = {
-  // Default: `crypto.randomUUID()`, which React Native's Hermes and a page served over plain http do
-  // not have. Pass any generator of unique strings there - a polyfilled uuid, say.
+  // Default: a v4 UUID - `crypto.randomUUID()` where there is one, built from
+  // `crypto.getRandomValues()` where there is not, as on a page served over plain http. Bare Hermes
+  // has neither; pass any generator of unique strings there - a polyfilled uuid, say.
   generateKey?: () => string
+}
+
+/**
+ * `randomUUID` exists only in a secure context, so a dev stack on plain http behind a hostname has
+ * none. `getRandomValues` exists everywhere `crypto` does, and 16 of its bytes are a v4 UUID once the
+ * version and variant bits are set.
+ */
+function randomUUID(): string {
+  const crypto = globalThis.crypto as Partial<Crypto> | undefined
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
+  if (typeof crypto?.getRandomValues !== 'function') {
+    throw new TypeError(
+      'useIdempotencyKey: this runtime has neither crypto.randomUUID nor crypto.getRandomValues - pass ' +
+        '`generateKey`, or install a polyfill such as react-native-get-random-values'
+    )
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
 }
 
 /**
@@ -488,7 +511,7 @@ export type IdempotencyKeyOptions = {
  *
  * Placing the header is the caller's, since every client places it differently.
  */
-export function useIdempotencyKey({ generateKey = () => crypto.randomUUID() }: IdempotencyKeyOptions = {}) {
+export function useIdempotencyKey({ generateKey = randomUUID }: IdempotencyKeyOptions = {}) {
   const attempt = useRef<{ snapshot: string | undefined; key: string } | null>(null)
 
   // `payload` is optional for a write with no body, which still wants one key per attempt.
@@ -679,6 +702,8 @@ export type ValidatedFormStateOptions = IdempotencyKeyOptions & {
   envelope?: ErrorEnvelope
 }
 
+type ValidatedSubmitOptions<R extends APIResult> = Omit<APISubmitOptions<R>, 'setFormErrors'>
+
 type InputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['input']
 type OutputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['output']
 
@@ -707,8 +732,8 @@ function fromIssues(issues: ReadonlyArray<StandardIssue>): FormErrors {
  * refinement is. `submit` is async regardless, so it accepts either.
  *
  * Every submit carries an idempotency key from `useIdempotencyKey`, keyed on the schema's output, so a
- * resubmit after a lost response is recognized as the same attempt. A form that does not want one
- * ignores the call's second argument - nothing here touches the network.
+ * resubmit after a lost response is recognized as the same attempt. A write that sends none passes
+ * `idempotencyKey: false`, and no key is minted at all - nothing here touches the network.
  */
 export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   schema: S,
@@ -765,14 +790,27 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
    *
    * The key is spent before `onSuccess` runs, so a submit made from there is a new attempt. A refusal
    * or a throw keeps it: the same payload sent again is the same attempt.
+   *
+   * `idempotencyKey: false` hands the call the value alone. An explicit option rather than reading the
+   * call's arity, which a default parameter or a rest parameter would misreport.
    */
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
-    options: Omit<APISubmitOptions<R>, 'setFormErrors'>
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: true }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey: false }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
   ): Promise<boolean> {
     const result = record(await schema['~standard'].validate(form.formState))
     if (result.issues) return false
-    return submitToAPI(() => call(result.value, keyFor(result.value)), {
+    // Only the second overload leaves the key undefined, and its call never reads one.
+    const key = options.idempotencyKey === false ? undefined : keyFor(result.value)
+    return submitToAPI(() => call(result.value, key as string), {
       ...options,
       setFormErrors: acceptServerErrors,
       onSuccess: (response, outcome) => {
@@ -806,4 +844,18 @@ export function createSubmitHooks(reporter: Reporter, envelope?: ErrorEnvelope) 
       options?: IdempotencyKeyOptions
     ) => useValidatedFormState(schema, initialState, reporter, { ...options, envelope }),
   }
+}
+
+// Support never changes while the page is open, so there is nothing to subscribe to.
+// Stryker disable next-line ArrowFunction: equivalent mutant - React treats an undefined cleanup as none.
+const subscribeToNothing = () => () => {}
+const assumeSupported = () => true
+
+/**
+ * `browserSupportsPasskeys` for render. The server cannot answer it, so it renders the optimistic
+ * answer and hydration replaces it with the browser's, with no mismatch warning - a passkey button
+ * that disappears on an old browser, rather than one that appears late on every new one.
+ */
+export function useBrowserSupportsPasskeys(): boolean {
+  return useSyncExternalStore(subscribeToNothing, browserSupportsPasskeys, assumeSupported)
 }

@@ -6,6 +6,7 @@ export default defineConfig({
     'hooks/index': 'src/hooks/index.ts',
     'drf/index': 'src/drf/index.ts',
     'allauth/index': 'src/allauth/index.ts',
+    'webauthn/index': 'src/webauthn/index.ts',
     'testing/index': 'src/testing/index.ts',
     'node/index': 'src/node/index.ts',
     'next/middleware/index': 'src/next/middleware.ts',
