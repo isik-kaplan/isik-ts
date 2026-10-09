@@ -57,9 +57,67 @@ describe('toFormErrors', () => {
     expect(toFormErrors({})).toBeUndefined()
   })
 
-  it('skips a value that is neither a string nor a list of them, rather than rendering an object', () => {
-    expect(toFormErrors({ settings: { idp: ['bad'] }, name: ['ok'] })).toEqual({ name: ['ok'] })
-    expect(toFormErrors({ count: [1, 2] })).toBeUndefined()
+  it('skips a value that is not a message, rather than rendering it', () => {
+    expect(toFormErrors({ count: [1, 2], name: ['ok'] })).toEqual({ name: ['ok'] })
+    expect(toFormErrors({ count: 5, flag: true, nothing: null })).toBeUndefined()
+  })
+
+  it("flattens a nested serializer's errors into dotted keys", () => {
+    expect(toFormErrors({ address: { city: ['This field is required.'] } })).toEqual({
+      'address.city': ['This field is required.'],
+    })
+  })
+
+  it("flattens a many=True serializer's errors by index, skipping the items that passed", () => {
+    expect(toFormErrors({ items: [{}, { qty: ['Ensure this value is greater than 0.'] }] })).toEqual({
+      'items.1.qty': ['Ensure this value is greater than 0.'],
+    })
+  })
+
+  it('flattens as deep as the nesting goes', () => {
+    expect(
+      toFormErrors({ order: { lines: [{ product: { sku: ['Unknown.'] } }] }, tags: { 0: ['Not a valid string.'] } })
+    ).toEqual({ 'order.lines.0.product.sku': ['Unknown.'], 'tags.0': ['Not a valid string.'] })
+  })
+
+  // A serializer only ever nests lists of messages. A bare string below the top is another server's
+  // envelope - allauth's `{message, code, param}` entries - and reading it would show a person a code.
+  it('skips a bare string below the top level', () => {
+    expect(toFormErrors({ errors: [{ message: 'Taken.', code: 'email_taken', param: 'email' }] })).toBeUndefined()
+    expect(toFormErrors({ a: { b: 'Bare.', c: ['Listed.'] } })).toEqual({ 'a.c': ['Listed.'] })
+  })
+
+  it('keeps a nested non_field_errors under its own dotted key', () => {
+    expect(toFormErrors({ address: { non_field_errors: ['Pick one.'] } })).toEqual({
+      'address.non_field_errors': ['Pick one.'],
+    })
+  })
+
+  it('reads detail and code as ordinary fields below the top level', () => {
+    expect(toFormErrors({ a: { detail: ['D.'], code: ['C.'] } })).toEqual({ 'a.detail': ['D.'], 'a.code': ['C.'] })
+  })
+
+  it('reads a list by index, keeping only what is a message there', () => {
+    expect(toFormErrors({ items: [5, null, true, 'Bare.', ['Listed.'], { qty: ['Bad.'] }] })).toEqual({
+      'items.4': ['Listed.'],
+      'items.5.qty': ['Bad.'],
+    })
+  })
+
+  it('skips a bare string inside a list of objects', () => {
+    expect(toFormErrors({ items: [{ qty: 'Bare.' }] })).toBeUndefined()
+  })
+
+  it('returns nothing when the nesting holds no messages', () => {
+    expect(toFormErrors({ items: [{}, {}], address: {} })).toBeUndefined()
+  })
+
+  it('gives a flat 400 body exactly what it gave before', () => {
+    expect(toFormErrors({ name: ['Taken.'], email: 'Invalid.', non_field_errors: ['No.'] })).toEqual({
+      name: ['Taken.'],
+      email: ['Invalid.'],
+      non_field_errors: ['No.'],
+    })
   })
 
   // Every entry, not some: a list carrying one string among other things is not a list of messages,

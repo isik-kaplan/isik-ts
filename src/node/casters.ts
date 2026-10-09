@@ -49,8 +49,13 @@ export const boolean = caster((value: string) => {
   throw new Error(`Value ${JSON.stringify(value)} can not be parsed into a boolean.`)
 })
 
-export const commaSeparatedList = caster((value: string) => value.split(','))
+// A variable set to nothing is an empty list, not one empty item: `''.split(',')` is `['']`.
+function splitList(value: string): string[] {
+  return value === '' ? [] : value.split(',')
+}
 
-export const commaSeparatedIntList = caster((value: string) => value.split(',').map(parseStrictInteger))
+export const commaSeparatedList = caster(splitList)
 
-export const commaSeparatedFloatList = caster((value: string) => value.split(',').map(parseStrictFloat))
+export const commaSeparatedIntList = caster((value: string) => splitList(value).map(parseStrictInteger))
+
+export const commaSeparatedFloatList = caster((value: string) => splitList(value).map(parseStrictFloat))

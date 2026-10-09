@@ -538,6 +538,17 @@ describe('useValidatedFormState', () => {
       expect(result.current.formErrors).toEqual({ non_field_errors: ['Slug taken.'] })
     })
 
+    it("shows a nested serializer's refusal rather than the generic failure", async () => {
+      const { result, report } = renderForm()
+      await act(async () => {
+        await result.current.submit(async () => refusal(400, { address: { city: ['Required.'] } }), {
+          failure: 'Nope.',
+        })
+      })
+      expect(result.current.formErrors).toEqual({ non_field_errors: ['Required.'] })
+      expect(report.error).not.toHaveBeenCalled()
+    })
+
     // Every object answers to `toString`, but no form holds a field by that name.
     it('does not mistake an inherited property for a field the form holds', async () => {
       const { result } = renderForm()

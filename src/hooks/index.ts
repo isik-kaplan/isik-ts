@@ -115,6 +115,18 @@ export function useFormState<T>(initialState: T) {
 export function useEffectAfterMount(effect: EffectCallback, deps: DependencyList) {
   const isFirstRender = useRef(true)
 
+  // StrictMode mounts, unmounts and mounts again in development, and the ref survives in between, so
+  // the second mount would read as an update. Resetting on unmount - its own effect, so a deps change
+  // does not reset it - makes every mount a first one.
+  useEffect(
+    () => () => {
+      isFirstRender.current = true
+    },
+    // Stryker disable next-line ArrayDeclaration: equivalent mutant. Any constant list compares equal
+    // to itself every render, so the cleanup still runs only on unmount.
+    []
+  )
+
   // No manual "did deps actually change" recheck needed here: React's own useEffect already
   // only re-invokes this callback when a dependency's value changed (shallow-compared against
   // the last time *this exact effect* ran) - which is exactly the same comparison a hand-rolled
@@ -155,6 +167,14 @@ export function useIsMounted(): () => boolean {
 }
 // Stryker restore ArrayDeclaration
 
+/**
+ * Whether a MIME type is one an `accept`-style list allows: `image/*` matches any `image/` type, and
+ * every other entry matches exactly. An empty list allows nothing; callers treat it as no filter.
+ */
+function matchesAcceptedType(type: string, accepted: string[]): boolean {
+  return accepted.some((entry) => (entry.endsWith('/*') ? type.startsWith(entry.slice(0, -1)) : type === entry))
+}
+
 export function useFilePaste({
   acceptedTypes,
   maxSize,
@@ -167,12 +187,10 @@ export function useFilePaste({
   enabled?: boolean
 } = {}): {
   files: File[]
-  isLoading: boolean
   error: string | null
   clearFiles: () => void
 } {
   const [files, setFiles] = useState<File[]>([])
-  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // The callback body below closes over nothing but the stable setFiles/setError setters, so
@@ -189,18 +207,7 @@ export function useFilePaste({
   const validateFiles = useCallback(
     (pastedFiles: File[]): { valid: true } | { valid: false; error: string } => {
       if (acceptedTypes && acceptedTypes.length > 0) {
-        const wildcardAcceptedTypes = acceptedTypes
-          .filter((type) => type.endsWith('/*'))
-          .map((type) => type.slice(0, -1))
-        const normalizedAcceptedTypes = acceptedTypes.map((type) => (type.endsWith('/*') ? type.slice(0, -2) : type))
-
-        const invalidFiles = pastedFiles.filter((file) => {
-          const fileType = file.type
-          return (
-            !normalizedAcceptedTypes.includes(fileType) &&
-            !wildcardAcceptedTypes.some((wildcardType) => fileType.startsWith(wildcardType))
-          )
-        })
+        const invalidFiles = pastedFiles.filter((file) => !matchesAcceptedType(file.type, acceptedTypes))
         if (invalidFiles.length > 0) {
           const invalidFileNames = invalidFiles.map((file) => file.name).join(', ')
           return {
@@ -236,28 +243,16 @@ export function useFilePaste({
       if (!hasFiles) return
 
       event.preventDefault()
-      // Stryker disable next-line BooleanLiteral: equivalent mutant. validateFiles never yields
-      // (no await between here and the `finally` below), so this and the `finally`'s
-      // setIsLoading(false) land in the same synchronous React commit - an observer can only ever
-      // see the final `false`, never a transient `true`, no matter what this call passes.
-      setIsLoading(true)
-      setError(null)
 
-      try {
-        const pastedFiles = Array.from(clipboardData.files)
-        const validation = validateFiles(pastedFiles)
+      const pastedFiles = Array.from(clipboardData.files)
+      const validation = validateFiles(pastedFiles)
 
-        if (!validation.valid) {
-          setError(validation.error)
-          setFiles([])
-        } else {
-          setFiles(pastedFiles)
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to process pasted files')
+      if (!validation.valid) {
+        setError(validation.error)
         setFiles([])
-      } finally {
-        setIsLoading(false)
+      } else {
+        setError(null)
+        setFiles(pastedFiles)
       }
     },
     [validateFiles]
@@ -274,7 +269,7 @@ export function useFilePaste({
     }
   }, [enabled, handlePaste, targetElement])
 
-  return { files, isLoading, error, clearFiles }
+  return { files, error, clearFiles }
 }
 
 type FileDragDropState = {
@@ -330,13 +325,7 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
           }
 
           if (acceptedFileTypes && acceptedFileTypes.length > 0) {
-            return acceptedFileTypes.some((type) => {
-              if (type.endsWith('/*')) {
-                const category = type.split('/')[0]
-                return item.type.startsWith(`${category}/`)
-              }
-              return item.type === type
-            })
+            return matchesAcceptedType(item.type, acceptedFileTypes)
           }
 
           return true
@@ -392,15 +381,7 @@ export function useFileDragDrop<T extends HTMLElement = HTMLDivElement>(options:
         let validFiles = Array.from(e.dataTransfer.files)
 
         if (acceptedFileTypes && acceptedFileTypes.length > 0) {
-          validFiles = validFiles.filter((file) =>
-            acceptedFileTypes.some((type) => {
-              if (type.endsWith('/*')) {
-                const category = type.split('/')[0]
-                return file.type.startsWith(`${category}/`)
-              }
-              return file.type === type
-            })
-          )
+          validFiles = validFiles.filter((file) => matchesAcceptedType(file.type, acceptedFileTypes))
         }
 
         if (maxFileSize) {

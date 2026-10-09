@@ -83,6 +83,10 @@ describe('getLazyValueAsync', () => {
   it('awaits async function values', async () => {
     expect(await getLazyValueAsync(async () => 5)).toBe(5)
   })
+
+  it('passes a rejection through', async () => {
+    await expect(getLazyValueAsync(async () => Promise.reject(new Error('no')))).rejects.toThrow('no')
+  })
 })
 
 describe('suppress', () => {

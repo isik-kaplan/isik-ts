@@ -64,6 +64,8 @@ function Example({ query }: { query: string }) {
 }
 ```
 
+Under `<StrictMode>` too: React's development-only second mount is still a mount, so the effect does not run there either, and development behaves as production does.
+
 ## useIsMounted
 
 Returns a function that answers whether the component is still mounted **at the moment it is called** - for an effect whose work outlives the component, such as a fetch that resolves after the screen was left. Reads `false` during the first render. No DOM in it, so it works the same in React Native.
@@ -243,7 +245,7 @@ import { useFilePaste } from '@isikk/core/hooks'
 const ACCEPTED_TYPES = ['image/*']
 
 function Example() {
-  const { files, error, isLoading, clearFiles } = useFilePaste({
+  const { files, error, clearFiles } = useFilePaste({
     acceptedTypes: ACCEPTED_TYPES,
     maxSize: 5_000_000,
   })
@@ -252,6 +254,8 @@ function Example() {
 }
 ```
 
+- An `acceptedTypes` entry ending in `/*` matches any type in that category (`image/*` matches `image/webp`); every other entry matches exactly. `useFileDragDrop` reads `acceptedFileTypes` the same way.
+- Validation is synchronous, so there is no loading state: `files` and `error` are set by the time the paste event returns.
 - Same caveat as `useElementAttributes`: `acceptedTypes` flows into this hook's paste-listener effect dependencies - use a stable reference, not an inline array literal, or the listener gets removed and re-attached on every render.
 
 ## useFileDragDrop

@@ -1,7 +1,7 @@
 import { act, render, renderHook } from '@testing-library/react'
 
 import type { ChangeEvent } from 'react'
-import { useEffect } from 'react'
+import { StrictMode, useEffect } from 'react'
 
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -253,6 +253,36 @@ describe('useEffectAfterMount', () => {
     rerender({ dep: 1 })
     expect(effect).not.toHaveBeenCalled()
   })
+
+  // StrictMode mounts twice in development and keeps the ref in between; the second mount is still a
+  // mount, not an update.
+  it('does not run the effect on mount under StrictMode, and runs it once when a dep changes', () => {
+    const effect = vi.fn()
+    const { rerender } = renderHook(({ dep }) => useEffectAfterMount(effect, [dep]), {
+      initialProps: { dep: 1 },
+      wrapper: StrictMode,
+    })
+    expect(effect).not.toHaveBeenCalled()
+
+    rerender({ dep: 2 })
+    expect(effect).toHaveBeenCalledOnce()
+  })
+
+  it('does not treat a deps change as a remount', () => {
+    const effect = vi.fn()
+    const { rerender } = renderHook(({ dep }) => useEffectAfterMount(effect, [dep]), { initialProps: { dep: 1 } })
+    rerender({ dep: 2 })
+    rerender({ dep: 3 })
+    expect(effect).toHaveBeenCalledTimes(2)
+  })
+
+  it('skips the first run again after a real remount', () => {
+    const effect = vi.fn()
+    const first = renderHook(() => useEffectAfterMount(effect, []))
+    first.unmount()
+    renderHook(() => useEffectAfterMount(effect, []))
+    expect(effect).not.toHaveBeenCalled()
+  })
 })
 
 describe('useIsMounted', () => {
@@ -351,11 +381,6 @@ function captureWindowErrors(act_: () => void): unknown[] {
 }
 
 describe('useFilePaste', () => {
-  it('starts with isLoading false, before anything is pasted', () => {
-    const { result } = renderHook(() => useFilePaste())
-    expect(result.current.isLoading).toBe(false)
-  })
-
   it('captures pasted files matching accepted types', () => {
     const { result } = renderHook(() => useFilePaste({ acceptedTypes: ['image/png'] }))
     dispatchPaste([new File(['data'], 'a.png', { type: 'image/png' })])
@@ -420,18 +445,6 @@ describe('useFilePaste', () => {
 
     expect(result.current.files).toEqual([])
     expect(result.current.error).toMatch(/Invalid file types/)
-  })
-
-  it('normalizes a wildcard entry to its bare category, not left as-is or mis-sliced', () => {
-    // 'image/*'.slice(0, -2) is 'image' (used for the *exact*-match list, which is otherwise
-    // dead for wildcard entries since no real MIME type is ever bare like this) - a file typed
-    // exactly 'image' is the one input that can tell a correct slice apart from a wrong one.
-    const { result } = renderHook(() => useFilePaste({ acceptedTypes: ['image/*'] }))
-    const file = new File(['data'], 'a.bin', { type: 'image' })
-    dispatchPaste([file])
-
-    expect(result.current.files).toEqual([file])
-    expect(result.current.error).toBeNull()
   })
 
   it('rejects files exceeding maxSize, with a precisely computed MB figure', () => {
@@ -560,54 +573,6 @@ describe('useFilePaste', () => {
     document.body.removeChild(target)
   })
 
-  it('surfaces a processing error via the caught error message', () => {
-    const { result } = renderHook(() => useFilePaste())
-
-    const throwingFiles = {
-      length: 1,
-      0: new File(['data'], 'a.png', { type: 'image/png' }),
-      [Symbol.iterator]() {
-        throw new Error('iteration failed')
-      },
-    }
-    const pasteEvent = new Event('paste') as unknown as ClipboardEvent
-    Object.defineProperty(pasteEvent, 'clipboardData', {
-      value: { files: throwingFiles },
-    })
-
-    act(() => {
-      document.dispatchEvent(pasteEvent)
-    })
-
-    expect(result.current.error).toBe('iteration failed')
-    expect(result.current.isLoading).toBe(false)
-    expect(result.current.files).toEqual([])
-  })
-
-  it('falls back to a generic message when a non-Error value is thrown', () => {
-    const { result } = renderHook(() => useFilePaste())
-
-    const throwingFiles = {
-      length: 1,
-      0: new File(['data'], 'a.png', { type: 'image/png' }),
-      [Symbol.iterator]() {
-        // eslint-disable-next-line no-throw-literal
-        throw 'not an Error instance'
-      },
-    }
-    const pasteEvent = new Event('paste') as unknown as ClipboardEvent
-    Object.defineProperty(pasteEvent, 'clipboardData', {
-      value: { files: throwingFiles },
-    })
-
-    act(() => {
-      document.dispatchEvent(pasteEvent)
-    })
-
-    expect(result.current.error).toBe('Failed to process pasted files')
-    expect(result.current.files).toEqual([])
-  })
-
   it('re-validates against the latest acceptedTypes after a rerender with new options', () => {
     const { result, rerender } = renderHook(({ acceptedTypes }) => useFilePaste({ acceptedTypes }), {
       initialProps: { acceptedTypes: ['image/png'] },
@@ -619,6 +584,44 @@ describe('useFilePaste', () => {
 
     expect(result.current.files).toEqual([file])
     expect(result.current.error).toBeNull()
+  })
+})
+
+// Paste and drop read an accepted-types list the same way, so one table runs through both: a wildcard
+// matches its `category/`, anything else matches exactly.
+const ACCEPTED_TYPE_CASES: Array<[string, string[], string, boolean]> = [
+  ['an exact match', ['image/png'], 'image/png', true],
+  ['a different type', ['image/png'], 'text/plain', false],
+  ['an exact entry is not a prefix', ['text/plain'], 'text/plain-extra', false],
+  ['a wildcard match', ['image/*'], 'image/webp', true],
+  ['a wildcard against a bare category', ['image/*'], 'image', false],
+  ['a wildcard against a shared text prefix', ['image/*'], 'imagexyz/foo', false],
+  ['a wildcard against another category', ['image/*'], 'text/plain', false],
+  ['any entry of several', ['text/plain', 'image/*'], 'image/gif', true],
+]
+
+describe('accepted file types, read the same by paste and drop', () => {
+  function DropZone({ accepted, onDrop }: { accepted: string[]; onDrop: (files: File[]) => void }) {
+    const { ref } = useFileDragDrop<HTMLDivElement>({ acceptedFileTypes: accepted, onDrop })
+    return <div ref={ref} data-testid="zone" />
+  }
+
+  it.each(ACCEPTED_TYPE_CASES)('%s', (_, accepted, type, matches) => {
+    const file = new File(['data'], 'f', { type })
+
+    const paste = renderHook(() => useFilePaste({ acceptedTypes: accepted }))
+    dispatchPaste([file])
+    expect(paste.result.current.files).toEqual(matches ? [file] : [])
+    paste.unmount()
+
+    const onDrop = vi.fn()
+    const { getByTestId } = render(<DropZone accepted={accepted} onDrop={onDrop} />)
+    const drop = new Event('drop', { bubbles: true })
+    Object.defineProperty(drop, 'dataTransfer', { value: { files: [file], items: [] } })
+    act(() => {
+      getByTestId('zone').dispatchEvent(drop)
+    })
+    expect(onDrop).toHaveBeenCalledTimes(matches ? 1 : 0)
   })
 })
 

@@ -1,7 +1,15 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { boolean, caster, commaSeparatedList, integer, string } from '../../src/node/casters'
+import {
+  boolean,
+  caster,
+  commaSeparatedFloatList,
+  commaSeparatedIntList,
+  commaSeparatedList,
+  integer,
+  string,
+} from '../../src/node/casters'
 import { ConfigError, config } from '../../src/node/config'
 import { claimConfigNamespace, resetConfigNamespaces } from '../../src/node/configRegistry'
 
@@ -22,6 +30,22 @@ describe('config', () => {
     })
 
     expect(result).toEqual({ PORT: 3000, DEBUG: true, HOSTS: ['a.com', 'b.com'] })
+  })
+
+  it('reads a list variable set to nothing as an empty list, and an unset one through missingDefault', () => {
+    vi.stubEnv('HOSTS', '')
+    vi.stubEnv('PORTS', '')
+    vi.stubEnv('RATES', '')
+    vi.stubEnv('LOCALES', undefined)
+
+    const result = config({
+      HOSTS: commaSeparatedList(),
+      PORTS: commaSeparatedIntList(),
+      RATES: commaSeparatedFloatList(),
+      LOCALES: commaSeparatedList({ missingDefault: ['en'] }),
+    })
+
+    expect(result).toEqual({ HOSTS: [], PORTS: [], RATES: [], LOCALES: ['en'] })
   })
 
   it('supports nested schemas, joined with the separator', () => {

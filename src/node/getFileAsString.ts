@@ -1,12 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 
+/** Throws what `fs` throws: an error read as the file's content would reach a person. */
 export async function getFileAsString(filename: string): Promise<string> {
-  try {
-    const filePath = path.join(process.cwd(), filename)
-    return await fs.readFile(filePath, 'utf8')
-  } catch (error) {
-    console.error(`Error reading file ${filename}:`, error)
-    return `Error reading file: ${error instanceof Error ? error.message : String(error)}`
-  }
+  return await fs.readFile(path.join(process.cwd(), filename), 'utf8')
 }

@@ -24,24 +24,11 @@ describe('getFileAsString', () => {
     expect(await getFileAsString('hello.txt')).toBe('hello world')
   })
 
-  it('returns an error message string instead of throwing when the file is missing', async () => {
-    const result = await getFileAsString('missing.txt')
-    expect(result).toMatch(/^Error reading file: /)
-  })
-
-  it('logs the filename alongside the raw error', async () => {
+  it('rejects with the fs error when the file is missing, and logs nothing', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await getFileAsString('missing.txt')
+    await expect(getFileAsString('missing.txt')).rejects.toMatchObject({ code: 'ENOENT' })
 
-    expect(consoleError).toHaveBeenCalledWith('Error reading file missing.txt:', expect.anything())
-  })
-
-  it('stringifies non-Error throws instead of reading .message', async () => {
-    vi.spyOn(fs, 'readFile').mockRejectedValueOnce('a plain string rejection')
-
-    const result = await getFileAsString('whatever.txt')
-
-    expect(result).toBe('Error reading file: a plain string rejection')
+    expect(consoleError).not.toHaveBeenCalled()
   })
 })

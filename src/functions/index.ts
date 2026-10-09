@@ -29,18 +29,7 @@ export function getLazyValue<T>(input: T | (() => T)): T {
 }
 
 export async function getLazyValueAsync<T>(input: T | (() => Promise<T>) | (() => T)): Promise<T> {
-  if (typeof input === 'function') {
-    const result = (input as () => Promise<T>)()
-    // Stryker disable next-line ConditionalExpression,BlockStatement: equivalent mutant. An async
-    // function auto-adopts a returned thenable through the same resolution algorithm `await`
-    // uses, so `return result` here resolves to the same value as `return await result` - the
-    // only difference is an extra microtask tick, which isn't part of this function's contract.
-    if (result instanceof Promise) {
-      return await result
-    }
-    return result as unknown as T
-  }
-  return input
+  return typeof input === 'function' ? await (input as () => T | Promise<T>)() : input
 }
 
 export function suppress<T, ERT>(

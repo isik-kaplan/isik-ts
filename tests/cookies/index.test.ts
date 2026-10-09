@@ -46,6 +46,21 @@ describe('getCookie', () => {
     cookieGetter.mockRestore()
   })
 
+  it('reads the value raw by default, a percent escape included', () => {
+    document.cookie = 'q=a%3Bb'
+    expect(getCookie('q')).toBe('a%3Bb')
+  })
+
+  it('decodes the value when asked to', () => {
+    document.cookie = 'q=a%3Bb%3Dc%20d'
+    expect(getCookie('q', { encoded: true })).toBe('a;b=c d')
+  })
+
+  it('reads a stray % as it was stored rather than throwing, even when asked to decode', () => {
+    document.cookie = 'discount=50%off'
+    expect(getCookie('discount', { encoded: true })).toBe('50%off')
+  })
+
   it('skips a malformed cookie entry that has no "=" separator instead of misreading it', () => {
     // Without the separator, slice(0, -1) drops the entry's last character and slice(0) returns
     // it whole - chosen so a buggy "don't skip" path would wrongly match name 'a' against it.
@@ -89,10 +104,111 @@ describe('setCookie', () => {
     vi.useRealTimers()
   })
 
+  it('stores an empty value', () => {
+    setCookie('empty', '')
+    expect(getCookie('empty')).toBe('')
+  })
+
+  // Every character a value may carry as written, the edges of each range RFC 6265 allows included.
+  it('stores a value of any allowed character as written', () => {
+    const value = "!#$%&'()*+-./09:<=>?@AZ[]^_`az{|}~"
+    setCookie('v', value)
+    expect(getCookie('v')).toBe(value)
+  })
+
+  it.each([
+    ['a semicolon', 'a;b'],
+    ['a comma', 'a,b'],
+    ['a space', 'a b'],
+    ['a double quote', 'a"b'],
+    ['a backslash', 'a\\b'],
+    ['a tab', 'a\tb'],
+    ['a DEL', 'a\x7Fb'],
+    ['a non-ASCII letter', 'café'],
+    ['a leading semicolon', ';a'],
+    ['a trailing semicolon', 'a;'],
+  ])('throws for a value with %s rather than storing part of it', (_, value) => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    expect(() => setCookie('q', value)).toThrow(
+      `Cookie value ${JSON.stringify(value)} cannot be stored as written; pass { encoded: true } to setCookie and getCookie`
+    )
+    expect(cookieSetter).not.toHaveBeenCalled()
+    cookieSetter.mockRestore()
+  })
+
+  it('cannot be made to write an attribute through the value', () => {
+    expect(() => setCookie('x', 'y; domain=evil.com')).toThrow(TypeError)
+  })
+
+  it('percent-encodes the value when asked to, and reads it back decoded', () => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    setCookie('q', 'a;b=c d', { encoded: true })
+    expect(cookieSetter).toHaveBeenCalledWith('q=a%3Bb%3Dc%20d; path=/')
+    cookieSetter.mockRestore()
+
+    setCookie('q', 'a;b=c d', { encoded: true })
+    expect(getCookie('q', { encoded: true })).toBe('a;b=c d')
+  })
+
+  it('encodes a value that was storable anyway, so it decodes back the same', () => {
+    setCookie('discount', '50%off', { encoded: true })
+    expect(getCookie('discount')).toBe('50%25off')
+    expect(getCookie('discount', { encoded: true })).toBe('50%off')
+  })
+
+  it.each([
+    ['empty', ''],
+    ['with a space', 'my cookie'],
+    ['with an equals sign', 'a=b'],
+    ['with a semicolon', 'a;b'],
+    ['with a slash', 'a/b'],
+    ['non-ASCII', 'çerez'],
+    ['with a leading separator', '(a'],
+    ['with a trailing separator', 'a)'],
+  ])('throws for a name that is %s, encoded or not', (_, name) => {
+    expect(() => setCookie(name, 'v')).toThrow(`Cookie name ${JSON.stringify(name)} is not a valid token`)
+    expect(() => setCookie(name, 'v', { encoded: true })).toThrow(TypeError)
+  })
+
+  it('accepts a name of any token character, the edges of each range included', () => {
+    const name = "!#$%&'*+-.^_`|~09AZaz"
+    setCookie(name, 'v')
+    expect(getCookie(name)).toBe('v')
+  })
+
   it('uses a custom path when provided', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     setCookie('theme', 'dark', { path: '/app' })
     expect(cookieSetter).toHaveBeenCalledWith('theme=dark; path=/app')
+    cookieSetter.mockRestore()
+  })
+})
+
+describe('cookie paths', () => {
+  it.each([
+    ['a semicolon', '/; domain=evil.com'],
+    ['a leading semicolon', ';/app'],
+    ['a trailing semicolon', '/app;'],
+    ['a newline', '/app\n'],
+    ['a NUL', '/\x00'],
+    ['a unit separator', '/\x1F'],
+    ['a DEL', '/\x7F'],
+  ])('throws for a path with %s, setting or removing, and writes nothing', (_, path) => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    expect(() => setCookie('a', 'b', { path })).toThrow(
+      `Cookie path ${JSON.stringify(path)} cannot hold a ';' or a control character`
+    )
+    expect(() => removeCookie('a', path)).toThrow(TypeError)
+    expect(cookieSetter).not.toHaveBeenCalled()
+    cookieSetter.mockRestore()
+  })
+
+  it('accepts any other printable path, a space and non-ASCII included', () => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    setCookie('a', 'b', { path: '/my app/çerez/ ~' })
+    removeCookie('a', '/my app/çerez/ ~')
+    expect(cookieSetter).toHaveBeenNthCalledWith(1, 'a=b; path=/my app/çerez/ ~')
+    expect(cookieSetter).toHaveBeenNthCalledWith(2, 'a=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/my app/çerez/ ~')
     cookieSetter.mockRestore()
   })
 })
@@ -112,6 +228,13 @@ describe('removeCookie', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     removeCookie('session', '/app')
     expect(cookieSetter).toHaveBeenCalledWith('session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/app')
+    cookieSetter.mockRestore()
+  })
+
+  it('throws for a name that is not a token rather than writing it', () => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    expect(() => removeCookie('a; domain=evil.com')).toThrow('is not a valid token')
+    expect(cookieSetter).not.toHaveBeenCalled()
     cookieSetter.mockRestore()
   })
 

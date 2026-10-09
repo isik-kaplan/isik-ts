@@ -17,13 +17,17 @@ import { toFormErrors } from '@isikk/core/drf'
 toFormErrors({ name: ['This field may not be blank.'], scopes: 'Not approved.' })
 // { name: ['This field may not be blank.'], scopes: ['Not approved.'] }
 
+toFormErrors({ items: [{}, { qty: ['Ensure this value is greater than 0.'] }] })
+// { 'items.1.qty': ['Ensure this value is greater than 0.'] }
+
 toFormErrors({ detail: 'Not found.' }) // undefined - that is detailOf's shape
 ```
 
 - A field's value can be a bare string as well as a list (a `ValidationError` raised with a dict of strings produces that), and it is wrapped into a list.
 - `detail` is skipped: it is the other shape, not a field. A serializer with a field literally named `detail` would lose it.
 - `code` is skipped only beside a string `detail`, where it is the machine-readable name of that same refusal (`{detail: 'Authentication credentials were not provided.', code: 'not_authenticated'}`). Anywhere else - a 400 with no `detail`, or a list of messages - `code` is an ordinary field, like an invitation or MFA code.
-- A value that is neither a string nor a list of strings - a nested serializer's error object, say - is skipped rather than rendered as `[object Object]`.
+- A nested serializer's errors flatten into dotted keys: `{address: {city: [...]}}` gives `address.city`, and a `many=True` serializer's `{items: [{}, {qty: [...]}]}` gives `items.1.qty`. `useValidatedFormState` holds no field by that name, so the message joins `non_field_errors` there rather than being lost to the generic `failure`.
+- Below the top level only a list of messages counts, as that is all a serializer nests; a bare string there is another server's envelope (allauth's `{message, code, param}` entries) and is skipped. A list that is not all strings is read by index like an object, and anything that is not a message - a number, `null` - is skipped rather than rendered as `[object Object]`.
 - `non_field_errors` is kept as an ordinary key; it is about the form as a whole.
 
 ## detailOf

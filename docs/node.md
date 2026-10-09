@@ -4,7 +4,7 @@ Import from `@isikk/core/node`. Node-only (uses `fs`/`path`/`node:async_hooks`/`
 
 ## getFileAsString
 
-Reads a file (path resolved relative to `process.cwd()`) and returns its contents as a UTF-8 string. Never throws - on failure it logs the error via `console.error` and returns an `'Error reading file: ...'` string instead.
+Reads a file (path resolved relative to `process.cwd()`) and returns its contents as a UTF-8 string. A failed read rejects with the error `fs` raised (`ENOENT` for a missing file), so a missing template is never sent to a person as its own error message.
 
 ```typescript
 import { getFileAsString } from '@isikk/core/node'
@@ -57,6 +57,7 @@ env.DATABASE.HOST // string, read from process.env.DATABASE__HOST (nested keys j
   - `missingDefault` is used when the environment variable isn't set at all.
   - `errorDefault` is used when the variable is set but the caster throws trying to parse it.
   - Neither is required - if you omit them, a missing or unparseable variable throws `ConfigError` instead.
+  - The `commaSeparated*` casters read a variable set to nothing (`HOSTS=`) as an empty list, `[]`. Only an unset one falls through to `missingDefault`.
 - Environment variable names are built by joining the schema's key path with `sep` (`"__"` by default) - `{ DATABASE: { HOST: string() } }` reads `process.env.DATABASE__HOST`. Pass `{ prefix: 'MYAPP' }` to prepend a namespace to every variable name (`MYAPP__DATABASE__HOST`), or `{ sep: '.' }` to change the joiner.
 - Values read here are server-only - nothing in this module serializes them anywhere. `config()` records its prefix as a **server** namespace, and throws `ConfigError` if [`publicConfig()`](next/config.md) has claimed an overlapping one, so a key pasted into a browser-visible schema by mistake can't quietly resolve to a server secret. Any number of `config()` calls may share a namespace; only a server/public overlap is rejected. See [next/config.md](next/config.md#prefixes-and-the-one-overlap-that-is-rejected).
 - Write your own caster with the `caster` factory - wrap any `(value: string) => T` function:

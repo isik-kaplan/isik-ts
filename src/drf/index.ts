@@ -24,10 +24,33 @@ export function toFormErrors(body: unknown): FormErrors | undefined {
     // would lose it here - that is the price of keeping the two shapes apart.
     if (field === 'detail') continue
     if (field === 'code' && isTheSentenceShape) continue
-    if (typeof value === 'string') errors[field] = [value]
-    else if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) errors[field] = value
+    flattenInto(errors, field, value)
   }
   return Object.keys(errors).length > 0 ? errors : undefined
+}
+
+/**
+ * A nested serializer refuses with an object, `{address: {city: [...]}}`, and a `many=True` one with
+ * a list of them, `{items: [{}, {qty: [...]}]}` - one entry per item, `{}` for the ones that passed.
+ * Both flatten to dotted keys, `address.city` and `items.1.qty`, so the message survives as a flat
+ * field error.
+ *
+ * Below the top level only a list of messages counts. That is all a serializer nests, and a bare
+ * string there is what another server's envelope looks like: allauth's `{errors: [{message, code,
+ * param}]}` would otherwise read as three fields, one of them saying `email_taken`. A list that is
+ * not all strings is read by index like an object, and anything that is not a message - a number,
+ * `null` - is skipped rather than rendered.
+ */
+function flattenInto(errors: FormErrors, key: string, value: unknown, nested = false): void {
+  if (typeof value === 'string') {
+    if (!nested) errors[key] = [value]
+  } else if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+    errors[key] = value
+  } else if (value != null) {
+    // An object, or a list of them read as one keyed by index. A number or a boolean has no entries,
+    // so it contributes nothing without a check of its own.
+    for (const [field, inner] of Object.entries(value)) flattenInto(errors, `${key}.${field}`, inner, true)
+  }
 }
 
 /** The sentence DRF wrote for a refusal that is not about a field. */

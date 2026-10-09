@@ -83,6 +83,14 @@ describe('publicConfig (server)', () => {
     })
   })
 
+  it('reads a list variable set to nothing as an empty list', () => {
+    vi.stubEnv('LOCALES', '')
+
+    const { CONFIG } = publicConfig({ LOCALES: commaSeparatedList() }, { globalKey: KEY })
+
+    expect([...CONFIG.LOCALES]).toEqual([])
+  })
+
   it('prefixes every variable name when a prefix is given', () => {
     vi.stubEnv('PUBLIC__API_URL', 'https://prefixed.example.com')
 

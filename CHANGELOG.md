@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-10-09
+
+### Added
+
+- `allowedHosts` on `getRequestOrigin`'s options: strings (whole host, port included, ignoring
+  case) or RegExps. A host outside the list throws. A deployment with no trusted proxy stripping
+  `X-Forwarded-Host` should pass it, or any caller can name the host an absolute URL is built from.
+
+### Changed
+
+- **Breaking:** `useFilePaste` no longer returns `isLoading`. Validation is synchronous, so it was
+  never observably `true`, and a spinner keyed on it never appeared.
+- **Breaking:** `getFileAsString` rejects with the error `fs` raised instead of logging it and
+  returning `'Error reading file: ...'` as the content, which a caller could not tell from the file
+  and could send to a person, server path included.
+- **Breaking:** `setCookie` throws for a value a cookie cannot carry as written (a `;`, `,`, space,
+  `"`, `\`, or anything outside printable ASCII), rather than storing part of it: `a;b` stored `a`,
+  and a value from user input could set `domain=`. `setCookie` and `removeCookie` also throw for a
+  name that is not a token, or a `path` holding a `;` or a control character. Pass
+  `{ encoded: true }` to `setCookie` to percent-encode the value, and the same option to `getCookie`
+  to decode it. A session id, a JWT or base64 is unaffected.
+- `toFormErrors` in `@isikk/core/drf` flattens a nested serializer's errors into dotted keys:
+  `{address: {city: [...]}}` gives `address.city`, and a `many=True` serializer's
+  `{items: [{}, {qty: [...]}]}` gives `items.1.qty`. They were dropped, and a refusal carrying only
+  those reported the generic `failure`. In `useValidatedFormState` they join `non_field_errors`, as
+  any field the form does not hold does.
+- `commaSeparatedList`, `commaSeparatedIntList` and `commaSeparatedFloatList` read a variable set
+  to nothing as `[]`, not `['']` or a thrown error. An unset one still goes through `missingDefault`.
+
+### Fixed
+
+- `getSafeRedirect` let `/\evil.com`, `/<tab>/evil.com` and `/<newline>/evil.com` through: browsers
+  read `\` as `/` and strip tabs and newlines, so all three left the site. The URL parser now decides,
+  and a path that passes is returned as given.
+- `getRequestOrigin` read a chained proxy's comma list whole (`https://a.com, b.com`). It now takes
+  the first item of `X-Forwarded-Host` and `X-Forwarded-Proto`.
+- `useEffectAfterMount` ran the effect on mount under `<StrictMode>`, whose second development
+  mount kept the ref from the first. The flag now resets on unmount.
+- `useFilePaste` accepted a file typed exactly `image` under `image/*`, which `useFileDragDrop`
+  did not. Both now read an accepted-types list through one matcher.
+
 ## [0.13.0] - 2026-10-05
 
 ### Added

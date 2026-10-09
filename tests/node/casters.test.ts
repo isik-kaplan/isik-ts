@@ -110,11 +110,23 @@ describe('commaSeparatedList', () => {
   it('splits on commas', () => {
     expect(commaSeparatedList()('a,b,c')).toEqual(['a', 'b', 'c'])
   })
+
+  it('reads an empty variable as an empty list, not one empty item', () => {
+    expect(commaSeparatedList()('')).toEqual([])
+  })
+
+  it('keeps the empty items between commas', () => {
+    expect(commaSeparatedList()(',')).toEqual(['', ''])
+  })
 })
 
 describe('commaSeparatedIntList', () => {
   it('splits and parses each element as an integer', () => {
     expect(commaSeparatedIntList()('1,2,3')).toEqual([1, 2, 3])
+  })
+
+  it('reads an empty variable as an empty list rather than throwing', () => {
+    expect(commaSeparatedIntList()('')).toEqual([])
   })
 
   it('throws if any element is unparseable', () => {
@@ -125,6 +137,14 @@ describe('commaSeparatedIntList', () => {
 describe('commaSeparatedFloatList', () => {
   it('splits and parses each element as a float', () => {
     expect(commaSeparatedFloatList()('1.5,2.5')).toEqual([1.5, 2.5])
+  })
+
+  it('reads an empty variable as an empty list rather than throwing', () => {
+    expect(commaSeparatedFloatList()('')).toEqual([])
+  })
+
+  it('still throws for an item left empty between commas', () => {
+    expect(() => commaSeparatedFloatList()('1.5,')).toThrow()
   })
 
   it('throws if any element is unparseable', () => {
