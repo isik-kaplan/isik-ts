@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { retryAfterOf } from '../../src/http'
+import { etagOf, ifMatch, isPreconditionFailed, isPreconditionRequired, retryAfterOf } from '../../src/http'
 
 function withRetryAfter(value?: string) {
   return { headers: new Headers(value === undefined ? {} : { 'Retry-After': value }) }
@@ -69,5 +69,51 @@ describe('retryAfterOf', () => {
     ['a date in another zone', withRetryAfter('Wed, 21 Oct 2026 12:01:30 CET')],
   ])('answers null for %s', (_, response) => {
     expect(retryAfterOf(response)).toBeNull()
+  })
+})
+
+describe('etagOf', () => {
+  it.each([
+    ['a strong tag', '"v1"'],
+    ['a weak tag, W/ kept', 'W/"v1"'],
+  ])('reads %s verbatim', (_, value) => {
+    expect(etagOf({ headers: new Headers({ ETag: value }) })).toBe(value)
+  })
+
+  it.each([
+    ['no response', undefined],
+    ['a null response', null],
+    ['no header', { headers: new Headers() }],
+  ])('answers null for %s', (_, response) => {
+    expect(etagOf(response)).toBeNull()
+  })
+})
+
+describe('ifMatch', () => {
+  it.each(['"v1"', 'W/"v1"', '*'])('sends %s as given', (etag) => {
+    expect(ifMatch(etag)).toEqual({ 'If-Match': etag })
+  })
+
+  it('refuses an empty tag', () => {
+    expect(() => ifMatch('')).toThrow(
+      new TypeError('ifMatch: an empty ETag matches nothing - pass the one the server sent, or "*"')
+    )
+  })
+})
+
+describe.each([
+  ['isPreconditionFailed', isPreconditionFailed, 412],
+  ['isPreconditionRequired', isPreconditionRequired, 428],
+])('%s', (_, predicate, status) => {
+  it(`is true for a ${status}`, () => {
+    expect(predicate({ status })).toBe(true)
+  })
+
+  it.each([
+    ['another status', { status: 400 }],
+    ['no response', undefined],
+    ['a null response', null],
+  ])('is false for %s', (_, response) => {
+    expect(predicate(response)).toBe(false)
   })
 })

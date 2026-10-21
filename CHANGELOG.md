@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-10-21
+
+### Added
+
+- Optimistic concurrency, for a server that versions rows with `ETag` / `If-Match` (isik's
+  `PreconditionMixin`). Nothing existing changes shape: a form that does not use it is untouched.
+  - `etagOf(response)`, `ifMatch(etag)`, `isPreconditionFailed(response)` and
+    `isPreconditionRequired(response)` in `@isikk/core`.
+  - `useVersionedFormState(schema, initialState, reporter, { etag, fromServer?, ... })`:
+    `useValidatedFormState` for a versioned row. Its call takes `(value, headers)`, where
+    `useValidatedFormState`'s takes `(value, key)`: the headers hold `Idempotency-Key` and
+    `If-Match`, ready to spread into the client's own. `etag` is required. The form adopts each
+    success's new token, and a 412 sets `conflict: { mine, theirs, current, etag }`, which
+    `takeTheirs()` and `keepMine()` resolve. Also on `createSubmitHooks`.
+
+    ```tsx
+    // useValidatedFormState, unchanged
+    submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), opts)
+    // useVersionedFormState
+    submit((value, headers) => api.PATCH('/orgs/{id}/', { params, body: value, headers }), opts)
+    ```
+
+  - `etag` on `useAPISubmit`'s submit options, sent as `If-Match` through a headers argument its
+    call is now handed: `submit((headers) => api.DELETE(url, { headers }), { etag, ... })`. A call
+    that takes no argument is unaffected.
+  - A 412 reports `stale`, a `() => string` set on `useAPISubmit`, `useValidatedFormState`,
+    `useVersionedFormState` or `createSubmitHooks` beside `throttled` and overridable per call, and
+    calls `onStale({ current, etag })`. It never reaches `setFormErrors`.
+  - A 428 reports `failure` and throws `PreconditionRequiredError`, with the form unlocked: a write
+    sent without a token, or with a `*` the server refuses, is a bug in the client.
+  - `onSuccess`'s outcome carries `etag`, the new version's token: the body's `etag` field, else
+    the `ETag` header, else `null`.
+
 ## [0.15.0] - 2026-10-21
 
 ### Added

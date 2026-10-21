@@ -158,20 +158,43 @@ function RevokeButton({ id }: { id: string }) {
 
 `call` returns an openapi-fetch-shaped result, `{ data?, error?, response? }`. `submit` resolves to whether it succeeded.
 
-- **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess(result, { replayed })` receives the result, and whether the server answered with `Idempotent-Replayed: true` - worth saying "already done" rather than "saved".
+- **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess(result, { replayed, etag })` receives the result; whether the server answered with `Idempotent-Replayed: true`, which is worth saying "already done" rather than "saved"; and the new version's token (the body's `etag` field, else the `ETag` header, else `null`).
 - **A 400** is read as field errors. Given `setFormErrors`, they go there and nothing is reported. Without it, every message is reported as one line.
 - **A 429** reports the `throttled` message, whatever the body says, and never reaches `setFormErrors` - see below.
+- **A 412** reports the `stale` message and calls `onStale({ current, etag })` - see [Optimistic concurrency](#optimistic-concurrency). **A 428** reports `failure` and throws `PreconditionRequiredError`.
 - **Any other 4xx** reports DRF's `detail` sentence. **A 5xx, or no response at all,** reports `failure` - that body is not written for a person, and often is not JSON.
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
 - A `call` that throws releases `isSubmitting` and rethrows.
 - Refreshing or navigating stays at the call site, through `onSuccess` - reaching for a router inside would make every caller a router consumer.
 - **A form that navigates on success passes `leavesOnSuccess: true`.** `isSubmitting` then stays set after the success, and every later submit is refused, because an app-router navigation is a fetch rather than a frame and the old screen stays mounted - and clickable - while it runs. The price is that a navigation that is cancelled or fails leaves the form disabled until a reload: a dead button is recoverable, a second write is not.
 - A submit made while another is in flight is refused: it resolves to `false` and its call is never made. `disabled={isSubmitting}` only takes effect once React commits, so this is what stops two clicks in one frame.
-- The second argument, `{ envelope, throttled }`, is optional.
+- The second argument, `{ envelope, throttled, stale }`, is optional.
 - `envelope`, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, { envelope: allauthEnvelope })` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, a 429 not at all, another 4xx for its sentence.
 - `throttled`, `(seconds: number | null) => string`, is what a 429 reports. `seconds` is the response's `Retry-After` read by [`retryAfterOf`](http.md#retryafterof), or `null` when it named no wait - allauth's never does. It is called as the 429 is reported, so it can call i18next's `t()` in the current language. A call overrides it with its own `throttled` submit option. The default is English: `Too many requests. Try again in 30 seconds.`, or `Too many requests. Wait a moment and try again.` with no wait.
 
   A 429 is not read from the body because three different things answer one - a DRF throttle with an English `detail` that cannot be translated, allauth with often no message at all, a proxy with its own - and they all mean the same thing to the person.
+
+- `stale`, `() => string`, is what a 412 reports, called as it is reported. A call overrides it with its own `stale` option. The default is English: `Someone else changed this while you were editing. Review their changes.`
+
+### Optimistic concurrency
+
+For a server that versions its rows with `ETag` / `If-Match` - isik's `PreconditionMixin` among them. A write names the version it was based on, and a server holding a newer one refuses it with a 412 rather than overwriting someone else's change.
+
+The call is handed the headers to send, since only it knows how its client places them:
+
+```tsx
+submit((headers) => api.DELETE('/notes/{id}/', { params: { path: { id } }, headers }), {
+  etag: note.etag,
+  failure: 'Could not delete the note.',
+  onStale: ({ current, etag }) => showTheirs(current, etag),
+})
+```
+
+- `etag` on the submit options is sent as `If-Match`, verbatim. `'*'` overwrites whatever is there. Without one the call is handed `{}`.
+- Read the token from the item's `etag` body field where the server has one. It is never weakened by compression, and a cross-origin page can read it without `Access-Control-Expose-Headers: ETag`. `etagOf(response)` in [http.md](http.md) reads the header.
+- **A 412** reports `stale` - never the body's English `detail`, never through `setFormErrors` - and hands `onStale` the body's `current` (the server's version) and its token: `current.etag`, else the `ETag` header, else `null`. `submit` resolves to `false`.
+- **A 428** means the write was sent without a token the server needs. Only the code can fix that, so after reporting `failure` it throws `PreconditionRequiredError`, with the form unlocked, for an error boundary or error tracking to catch.
+- Cross-origin, the API has to allow the header in and the token out: `If-Match` in django-cors-headers' `CORS_ALLOW_HEADERS`, and `ETag` in `CORS_EXPOSE_HEADERS` if the header is read. Without them every cross-origin write fails.
 
 ## useValidatedFormState
 
@@ -203,10 +226,44 @@ function RenameForm() {
 Returns everything `useFormState` does, plus `validate`, `isSubmitting` and `submit`.
 
 - `submit` validates first and never makes the call when the schema refuses. The call receives the schema's **output**, so a `.trim()` or a coercion is not lost.
-- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one. The fourth argument, `{ generateKey, envelope, throttled }`, replaces the default key generator, and reads another server's refusals and words a 429 as `useAPISubmit`'s second argument does.
+- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one.
+- The fourth argument, `{ generateKey, envelope, throttled, stale }`, replaces the default key generator, and reads another server's refusals and words a 429 and a 412 as `useAPISubmit`'s second argument does.
+- A form editing a row the server versions with `ETag` / `If-Match` uses [`useVersionedFormState`](#useversionedformstate) instead.
 - The schema's issues and the server's 400 land in the same `formErrors`, so a refusal from either side renders in the same place. An issue is filed under the first segment of its path; one with no path goes under `non_field_errors`.
 - A server error naming a field the form state does not hold joins `non_field_errors` rather than being dropped - a serializer can refuse a column this form never shows.
 - `validate()` returns a `boolean`, so `if (!validate()) return` works. It needs a synchronous schema - every zod or valibot schema without an async refinement - and throws a `TypeError` for one that answers with a Promise, rather than returning a Promise that would always read as valid. `submit` awaits the schema, so it accepts either.
+
+## useVersionedFormState
+
+`useValidatedFormState` for a row the server versions with `ETag` / `If-Match` - isik's `PreconditionMixin` among them. It takes the same arguments, plus a required `etag` - the loaded item's `etag` field - which the form sends as `If-Match` on every submit and keeps current itself. It returns the same, plus `etag`, `conflict`, `takeTheirs` and `keepMine`.
+
+Its own hook rather than an option, because the call takes a different second argument: the headers to send, `Idempotency-Key` and `If-Match` together, ready to spread into the client's own.
+
+```tsx
+const { formState, conflict, takeTheirs, keepMine, submit } = useVersionedFormState(schema, note, toast, {
+  etag: note.etag,
+})
+
+await submit((value, headers) => api.PATCH('/notes/{id}/', { params: { path: { id } }, body: value, headers }), {
+  failure: 'Could not save.',
+  idempotencyKey: false,
+})
+
+if (conflict) {
+  // conflict.mine: what was sent. conflict.theirs: the server's version, as form state.
+  // <button onClick={takeTheirs}>Use theirs</button> <button onClick={keepMine}>Keep mine</button>
+}
+```
+
+- `etag` is required, so a form cannot forget it and meet a 428; pass `null` for an item not loaded yet, and no `If-Match` is sent. The call's second argument is `{ 'Idempotency-Key'?, 'If-Match'? }`; `idempotencyKey: false` leaves the key out, as in `useValidatedFormState`.
+- The `etag` it returns is the token the form holds now. A success's new one replaces it, from the body's `etag` field or the `ETag` header, so a second save sends the right one. A new `etag` option - a refetch - replaces it too.
+- A 412 sets `conflict: { mine, theirs, current, etag }`. `mine` is the form state as submitted. `current` is the 412 body's `current`. `theirs` is `current` as form state: by default the form's own keys read from it, keeping the form's value for any it lacks. Pass `fromServer(current, mine)` for a representation that does not map key for key. `etag` is the server's new token. The form keeps its own token until the person chooses.
+- `takeTheirs()` drops the edits: the form takes `theirs` and its token, and `formErrors` and `conflict` clear.
+- `keepMine()` writes the edits over theirs: it runs the last `submit` again, with the form as it stands now and `If-Match` set to `conflict.etag`, and resolves as `submit` does. Without a conflict it resolves to `false` and sends nothing.
+- A 412 ends the idempotency attempt, so `keepMine` sends a new key. Its write carries another `If-Match`, so it is another request, and the old key would have the server answer it from the refused one.
+- A later success clears `conflict`. Rendering it is the page's: this is state only.
+- `conflict.current` is `null` when the row is gone - a server set to answer a deleted row with a 412 rather than a 404. Then `theirs` is `mine` and `etag` is `null`: offer neither choice, since there is nothing to take and `keepMine` would send no `If-Match`.
+- `'*'` overwrites whatever version is there. Send it - as `etag` on `useAPISubmit` - only when the person chose to overwrite. A server may refuse it with a 428, which throws as a missing token does.
 
 ## createSubmitHooks
 
@@ -221,7 +278,7 @@ import { toast } from 'sonner'
 export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
 ```
 
-The returned hooks take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 message once for every form:
+The returned hooks - `useAPISubmit`, `useValidatedFormState` and `useVersionedFormState` - take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled, stale }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 and 412 messages once for every form:
 
 ```tsx
 import i18next from 'i18next'
@@ -229,7 +286,12 @@ import i18next from 'i18next'
 const throttled = (seconds: number | null) =>
   seconds === null ? i18next.t('errors.throttled') : i18next.t('errors.throttledFor', { count: seconds })
 
-export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast, { throttled })
+const stale = () => i18next.t('errors.stale')
+
+export const { useAPISubmit, useValidatedFormState, useVersionedFormState } = createSubmitHooks(toast, {
+  throttled,
+  stale,
+})
 export const auth = createSubmitHooks(toast, { envelope: allauthEnvelope, throttled })
 ```
 

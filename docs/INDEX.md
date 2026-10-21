@@ -18,12 +18,12 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [cookies.md](cookies.md) - `getCookie`, `setCookie`, `removeCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
 - [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHSLTriplet`
-- [http.md](http.md) - `retryAfterOf`
+- [http.md](http.md) - `retryAfterOf`, `etagOf`, `ifMatch`, `isPreconditionFailed`, `isPreconditionRequired`
 
 ## React (`@isikk/core/hooks`)
 
-- [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`,
-  `useAPISubmit`, `createSubmitHooks`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
+- [hooks.md](hooks.md) - `useElementAttributes`, `useFormState`, `useValidatedFormState`, `useVersionedFormState`,
+  `useAPISubmit`, `createSubmitHooks`, `PreconditionRequiredError`, `useIdempotencyKey`, `useIdempotencyKeyOf`, `useEffectAfterMount`, `useIsMounted`,
   `useBrowserSupportsPasskeys`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 

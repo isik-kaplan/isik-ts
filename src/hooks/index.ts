@@ -2,7 +2,7 @@ import type { ChangeEvent, DependencyList, DragEvent, EffectCallback } from 'rea
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import { type FormErrors, detailOf, messagesOf, toFormErrors } from '../drf'
-import { retryAfterOf } from '../http'
+import { etagOf, ifMatch, isPreconditionFailed, isPreconditionRequired, retryAfterOf } from '../http'
 import { browserSupportsPasskeys } from '../webauthn'
 
 export function useElementAttributes<T extends HTMLElement, K extends keyof T>(attributeKeys: K[]) {
@@ -565,11 +565,53 @@ const throttledInEnglish: ThrottledMessage = (seconds) =>
     ? `Too many requests. Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`
     : 'Too many requests. Wait a moment and try again.'
 
+/**
+ * What a person reads when the server answers 412 - someone else saved first. Called as it is
+ * reported, so it can read the current language.
+ */
+export type StaleMessage = () => string
+
+const staleInEnglish: StaleMessage = () => 'Someone else changed this while you were editing. Review their changes.'
+
 export type SubmitHooksOptions = {
   // How the server's refusals are read. Default: Django REST framework's, from `@isikk/core/drf`.
   envelope?: ErrorEnvelope
   // What a 429 reports. Default: an English sentence naming the wait, if the server named one.
   throttled?: ThrottledMessage
+  // What a 412 reports. Default: an English sentence.
+  stale?: StaleMessage
+}
+
+/** The headers a submit hands its call, to spread into the client's own: `If-Match`, and in a form the `Idempotency-Key`. */
+export type SubmitHeaders = Record<string, string>
+
+/** What a 412 says: the version the server holds now, and the token that names it. */
+export type StaleOutcome = {
+  // The 412 body's `current` - the server's representation, as a retrieve would answer it.
+  current: unknown
+  // Read from `current.etag` first, then the `ETag` header; `null` when neither is there.
+  etag: string | null
+}
+
+/**
+ * A 428: the server needs an `If-Match` and the write sent none, or sent `*` where the server takes
+ * only a real version. A bug in the client, never in what a person did, so it is thrown rather than
+ * reported as something they could fix.
+ */
+export class PreconditionRequiredError extends Error {
+  constructor() {
+    super('useAPISubmit: the server answered 428 - this write needs an `etag`, and was sent none or a `*` it refuses')
+    this.name = 'PreconditionRequiredError'
+  }
+}
+
+/**
+ * The token a body carries in its `etag` field, else the `ETag` header. The body comes first: it is
+ * never weakened, and a cross-origin page can read it without `Access-Control-Expose-Headers`.
+ */
+function tokenOf(body: unknown, response: Response | undefined): string | null {
+  const field = body && (body as { etag?: unknown }).etag
+  return typeof field === 'string' && field !== '' ? field : etagOf(response)
 }
 
 /** What a typed client returns - openapi-fetch's result, with the status and not only the body. */
@@ -596,12 +638,21 @@ export type APISubmitOptions<R extends APIResult> = {
   leavesOnSuccess?: boolean
   // What a 429 reports on this call, in place of the hook's.
   throttled?: ThrottledMessage
+  // The version this write is based on, sent as `If-Match`. `'*'` overwrites whatever is there.
+  // Without one no `If-Match` is sent.
+  etag?: string | null
+  // What a 412 reports on this call, in place of the hook's.
+  stale?: StaleMessage
+  // A 412, after it is reported: the server's current version and its token.
+  onStale?: (outcome: StaleOutcome) => void
 }
 
 export type SubmitOutcome = {
   // The server answered from an earlier attempt with the same `Idempotency-Key` rather than doing the
   // work again - worth telling a person "already done" rather than "saved".
   replayed: boolean
+  // The new version's token - the body's `etag`, else the `ETag` header - or `null` for none.
+  etag: string | null
 }
 
 function succeeded(result: APIResult): boolean {
@@ -609,7 +660,10 @@ function succeeded(result: APIResult): boolean {
 }
 
 function outcomeOf(result: APIResult): SubmitOutcome {
-  return { replayed: result.response?.headers.get('Idempotent-Replayed') === 'true' }
+  return {
+    replayed: result.response?.headers.get('Idempotent-Replayed') === 'true',
+    etag: tokenOf(result.data, result.response),
+  }
 }
 
 /**
@@ -623,6 +677,10 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  * A 429 is not read at all. Whoever answered it - a DRF throttle, allauth's rate limit, a proxy in
  * front of both - the person is told the same thing, `throttled`, with the wait `Retry-After` named.
  *
+ * Given an `etag`, the call is handed `If-Match` to send. A 412 reports `stale` and hands the
+ * server's current version to `onStale`; a 428 reports `failure` and throws
+ * `PreconditionRequiredError`, since only the code can fix it.
+ *
  * Refreshing or navigating after success stays at the call site, through `onSuccess`. Reaching for a
  * router here would make every caller a router consumer, including the ones that render their own
  * result. A caller that navigates says so with `leavesOnSuccess`.
@@ -633,7 +691,7 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  */
 export function useAPISubmit(
   reporter: Reporter,
-  { envelope = drfEnvelope, throttled = throttledInEnglish }: SubmitHooksOptions = {}
+  { envelope = drfEnvelope, throttled = throttledInEnglish, stale = staleInEnglish }: SubmitHooksOptions = {}
 ) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   // State answers too late to guard with: it changes on the next commit, not on this call.
@@ -644,13 +702,16 @@ export function useAPISubmit(
     setIsSubmitting(false)
   }
 
-  async function submit<R extends APIResult>(call: () => Promise<R>, options: APISubmitOptions<R>): Promise<boolean> {
+  async function submit<R extends APIResult>(
+    call: (headers: SubmitHeaders) => Promise<R>,
+    options: APISubmitOptions<R>
+  ): Promise<boolean> {
     if (locked.current) return false
     locked.current = true
     setIsSubmitting(true)
     let result: R
     try {
-      result = await call()
+      result = await call(options.etag ? ifMatch(options.etag) : {})
     } catch (error) {
       // A call that throws is the caller's to handle, but it must not leave the form locked.
       release()
@@ -672,6 +733,19 @@ export function useAPISubmit(
     if (status === 429) {
       reporter.error((options.throttled ?? throttled)(retryAfterOf(result.response)))
       return false
+    }
+
+    // Also ahead of the envelope: a 412's `detail` is English, and its body is a version, not errors.
+    if (isPreconditionFailed(result.response)) {
+      reporter.error((options.stale ?? stale)())
+      const current = (result.error as { current?: unknown } | null | undefined)?.current
+      options.onStale?.({ current, etag: tokenOf(current, result.response) })
+      return false
+    }
+
+    if (isPreconditionRequired(result.response)) {
+      reporter.error(options.failure)
+      throw new PreconditionRequiredError()
     }
 
     const fields = status === 400 ? envelope.toFormErrors(result.error) : undefined
@@ -712,10 +786,41 @@ export type StandardSchemaV1<Input = unknown, Output = Input> = {
   }
 }
 
-// How the server's refusals are read, and what a 429 says - see `useAPISubmit`.
+// How the server's refusals are read, and what a 429 and a 412 say - see `useAPISubmit`.
 export type ValidatedFormStateOptions = IdempotencyKeyOptions & SubmitHooksOptions
 
-type ValidatedSubmitOptions<R extends APIResult> = Omit<APISubmitOptions<R>, 'setFormErrors'>
+export type VersionedFormStateOptions<Input = unknown> = ValidatedFormStateOptions & {
+  // The version the form was loaded from - the item's `etag` field, or a retrieve's `ETag`. Every
+  // submit sends it as `If-Match`, and each success's new one replaces it. A new value here - a
+  // refetch - replaces it too. Required, so a form cannot forget it and meet a 428; `null` for one
+  // not loaded yet.
+  etag: string | null
+  // How a 412's `current` becomes form state, for `conflict.theirs`. Default: the form's own keys
+  // read from it, keeping the form's value for any key it lacks.
+  fromServer?: (current: unknown, mine: Input) => Input
+}
+
+// The form owns the version it sends, so a submit takes no `etag` of its own.
+type ValidatedSubmitOptions<R extends APIResult> = Omit<APISubmitOptions<R>, 'setFormErrors' | 'etag'>
+
+/** A 412 in a form: what was sent, the server's version beside it, and the token to write over it with. */
+export type Conflict<Input> = {
+  mine: Input
+  theirs: Input
+  current: unknown
+  etag: string | null
+}
+
+function ownKeysFrom<Input>(current: unknown, mine: Input): Input {
+  // Stryker disable next-line ConditionalExpression: equivalent mutant on the `typeof` half - a string
+  // or a number holds no form key of its own, so reading one gives `mine` back just the same.
+  if (!current || typeof current !== 'object') return mine
+  const picked = Object.entries(mine as object).map(([key, value]): [string, unknown] => [
+    key,
+    Object.prototype.hasOwnProperty.call(current, key) ? (current as Record<string, unknown>)[key] : value,
+  ])
+  return Object.fromEntries(picked) as Input
+}
 
 type InputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['input']
 type OutputOf<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['output']
@@ -734,29 +839,39 @@ function fromIssues(issues: ReadonlyArray<StandardIssue>): FormErrors {
 }
 
 /**
- * Form state, validation, and the submit tail, as one object.
+ * `useValidatedFormState` for a row the server versions with `ETag` / `If-Match`: the form holds the
+ * version it edits, sends it on every submit, and keeps a 412 as `conflict` for the page to resolve
+ * with `takeTheirs` or `keepMine`.
  *
- * The submit half is `useAPISubmit`, composed rather than reimplemented, because half the writes in
- * a real app are a button or a switch with no form behind them, and those use it directly. Composing
- * is what puts the server's 400 field errors into the same `formErrors` the schema writes to, so a
- * refusal from either side renders in the same place.
- *
- * `validate` needs a synchronous schema, which every zod and valibot schema without an async
- * refinement is. `submit` is async regardless, so it accepts either.
- *
- * Every submit carries an idempotency key from `useIdempotencyKey`, keyed on the schema's output, so a
- * resubmit after a lost response is recognized as the same attempt. A write that sends none passes
- * `idempotencyKey: false`, and no key is minted at all - nothing here touches the network.
+ * Its own hook rather than an option on `useValidatedFormState`, because the call takes a different
+ * second argument: the headers to send, `Idempotency-Key` and `If-Match` together, where that one
+ * takes the bare key. A form either edits a versioned row or it does not.
  */
-export function useValidatedFormState<S extends StandardSchemaV1<object>>(
+export function useVersionedFormState<S extends StandardSchemaV1<object>>(
   schema: S,
   initialState: InputOf<S>,
   reporter: Reporter,
-  options?: ValidatedFormStateOptions
+  options: VersionedFormStateOptions<InputOf<S>>
 ) {
   const form = useFormState<InputOf<S>>(initialState)
   const { isSubmitting, submit: submitToAPI } = useAPISubmit(reporter, options)
   const { keyFor, used } = useIdempotencyKey(options)
+  const fromServer = options.fromServer ?? ownKeysFrom
+
+  // State to render it, a ref to send it: a submit right after adopting one - `keepMine` - must not
+  // send the token from the render before.
+  const givenEtag = options.etag
+  const [etag, setEtag] = useState<string | null>(givenEtag)
+  const sending = useRef(etag)
+  function adopt(token: string | null) {
+    sending.current = token
+    setEtag(token)
+  }
+  useEffectAfterMount(() => adopt(givenEtag), [givenEtag])
+
+  const [conflict, setConflict] = useState<Conflict<InputOf<S>> | null>(null)
+  // What `keepMine` sends again. Typed loosely: each submit has its own R.
+  const lastSubmit = useRef<Parameters<typeof submit> | null>(null)
   // Typed against this call's concrete S, which a generic S cannot be checked against here - the
   // shape, a list of messages per field plus non_field_errors, is the same.
   const setFormErrors = form.setFormErrors as (errors: FormErrors | undefined) => void
@@ -804,6 +919,105 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
    * The key is spent before `onSuccess` runs, so a submit made from there is a new attempt. A refusal
    * or a throw keeps it: the same payload sent again is the same attempt.
    *
+   * The call's second argument is the headers to send: `Idempotency-Key`, unless
+   * `idempotencyKey: false`, and `If-Match` while the form holds a version.
+   *
+   * A 412 ends the attempt and sets `conflict`. The next write carries another `If-Match`, so it is
+   * another request, and reusing the key would have the server answer it from the refused one.
+   */
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
+  ): Promise<boolean> {
+    lastSubmit.current = [call, options] as Parameters<typeof submit>
+    const mine = form.formState
+    const result = record(await schema['~standard'].validate(mine))
+    if (result.issues) return false
+    const key = options.idempotencyKey === false ? undefined : keyFor(result.value)
+    return submitToAPI(
+      (headers) => call(result.value, key === undefined ? headers : { ...headers, 'Idempotency-Key': key }),
+      {
+        ...options,
+        etag: sending.current,
+        setFormErrors: acceptServerErrors,
+        onSuccess: (response, outcome) => {
+          used()
+          setConflict(null)
+          if (outcome.etag !== null) adopt(outcome.etag)
+          options.onSuccess?.(response, outcome)
+        },
+        onStale: (outcome) => {
+          used()
+          setConflict({ mine, theirs: fromServer(outcome.current, mine), ...outcome })
+          options.onStale?.(outcome)
+        },
+      }
+    )
+  }
+
+  /** Drops the edits for the server's version: the form takes `theirs`, and its token. */
+  function takeTheirs() {
+    if (!conflict) return
+    form.setFormState(conflict.theirs)
+    setFormErrors(undefined)
+    adopt(conflict.etag)
+    setConflict(null)
+  }
+
+  /**
+   * Writes the edits over the server's version: the last submit again, the form as it stands, with
+   * the token the 412 named. Resolves as `submit` does, and to `false` with no conflict.
+   */
+  async function keepMine(): Promise<boolean> {
+    if (!conflict || !lastSubmit.current) return false
+    adopt(conflict.etag)
+    setConflict(null)
+    return submit(...lastSubmit.current)
+  }
+
+  return { ...form, validate, isSubmitting, submit, etag, conflict, takeTheirs, keepMine }
+}
+
+/**
+ * Form state, validation, and the submit tail, as one object.
+ *
+ * The submit half is `useAPISubmit`, composed rather than reimplemented, because half the writes in
+ * a real app are a button or a switch with no form behind them, and those use it directly. Composing
+ * is what puts the server's 400 field errors into the same `formErrors` the schema writes to, so a
+ * refusal from either side renders in the same place.
+ *
+ * `validate` needs a synchronous schema, which every zod and valibot schema without an async
+ * refinement is. `submit` is async regardless, so it accepts either.
+ *
+ * Every submit carries an idempotency key from `useIdempotencyKey`, keyed on the schema's output, so a
+ * resubmit after a lost response is recognized as the same attempt. A write that sends none passes
+ * `idempotencyKey: false`, and no key is minted at all - nothing here touches the network.
+ *
+ * `useVersionedFormState` with no version, handing the call the bare key. A form editing a row the
+ * server versions uses that one.
+ */
+export function useValidatedFormState<S extends StandardSchemaV1<object>>(
+  schema: S,
+  initialState: InputOf<S>,
+  reporter: Reporter,
+  options?: ValidatedFormStateOptions
+) {
+  const {
+    etag: _etag,
+    conflict: _conflict,
+    takeTheirs: _takeTheirs,
+    keepMine: _keepMine,
+    submit: submitWithHeaders,
+    ...rest
+  } = useVersionedFormState(schema, initialState, reporter, { ...options, etag: null })
+
+  /**
+   * Validates first, so a form never spends a round trip on something it could refuse itself, and
+   * hands the call the schema's output rather than the raw state, so a transform is not lost.
+   *
+   * The key is spent before `onSuccess` runs, so a submit made from there is a new attempt. A refusal
+   * or a throw keeps it: the same payload sent again is the same attempt.
+   *
    * `idempotencyKey: false` hands the call the value alone. An explicit option rather than reading the
    * call's arity, which a default parameter or a rest parameter would misreport.
    */
@@ -819,35 +1033,26 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
     call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
     options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
   ): Promise<boolean> {
-    const result = record(await schema['~standard'].validate(form.formState))
-    if (result.issues) return false
-    // Only the second overload leaves the key undefined, and its call never reads one.
-    const key = options.idempotencyKey === false ? undefined : keyFor(result.value)
-    return submitToAPI(() => call(result.value, key as string), {
-      ...options,
-      setFormErrors: acceptServerErrors,
-      onSuccess: (response, outcome) => {
-        used()
-        options.onSuccess?.(response, outcome)
-      },
-    })
+    // With no version there is no `If-Match`, so the headers hold the key or nothing. Only the second
+    // overload leaves it undefined, and its call never reads one.
+    return submitWithHeaders((value, headers) => call(value, headers['Idempotency-Key']), options)
   }
 
-  return { ...form, validate, isSubmitting, submit }
+  return { ...rest, submit }
 }
 
 /**
  * `useAPISubmit` and `useValidatedFormState` with the reporter already supplied, so an app names its
  * toast once rather than once per hook:
  *
- *     export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
+ *     export const { useAPISubmit, useValidatedFormState, useVersionedFormState } = createSubmitHooks(toast)
  *
  * A factory rather than a provider or a module-level default: a provider is a component, and a
  * default is a global that leaks between tests and turns a forgotten reporter from a type error into
  * silence at runtime. The hooks it returns take no reporter, so there is nothing to forget.
  *
  * The options are bound the same way: an allauth surface passes `{ envelope: allauthEnvelope }` here
- * once, and an app names its 429 message once, for every form.
+ * once, and an app names its 429 and 412 messages once, for every form.
  */
 export function createSubmitHooks(reporter: Reporter, bound: SubmitHooksOptions = {}) {
   return {
@@ -857,6 +1062,11 @@ export function createSubmitHooks(reporter: Reporter, bound: SubmitHooksOptions 
       initialState: InputOf<S>,
       options?: IdempotencyKeyOptions
     ) => useValidatedFormState(schema, initialState, reporter, { ...options, ...bound }),
+    useVersionedFormState: <S extends StandardSchemaV1<object>>(
+      schema: S,
+      initialState: InputOf<S>,
+      options: Omit<VersionedFormStateOptions<InputOf<S>>, keyof SubmitHooksOptions>
+    ) => useVersionedFormState(schema, initialState, reporter, { ...options, ...bound }),
   }
 }
 

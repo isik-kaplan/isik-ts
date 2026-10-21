@@ -55,3 +55,29 @@ export function retryAfterOf(response: { headers: Headers } | null | undefined):
   const date = parseHTTPDate(value, now)
   return date === undefined ? null : Math.max(0, Math.ceil((date - now) / 1000))
 }
+
+/**
+ * A response's `ETag`, exactly as sent - quotes and any `W/` kept, so it goes back into `If-Match`
+ * unchanged and the server compares what it issued. `null` with no response or no header.
+ *
+ * A cross-origin page reads it only if the server lists `ETag` in `Access-Control-Expose-Headers`.
+ */
+export function etagOf(response: { headers: Headers } | null | undefined): string | null {
+  return response?.headers.get('ETag') ?? null
+}
+
+/** The `If-Match` header for a write, to spread into a client's headers. `'*'` matches any version. */
+export function ifMatch(etag: string): { 'If-Match': string } {
+  if (etag === '') throw new TypeError('ifMatch: an empty ETag matches nothing - pass the one the server sent, or "*"')
+  return { 'If-Match': etag }
+}
+
+/** A 412: the `If-Match` sent names a version someone else has since replaced. */
+export function isPreconditionFailed(response: { status: number } | null | undefined): boolean {
+  return response?.status === 412
+}
+
+/** A 428: the server needs an `If-Match` and the write sent none. */
+export function isPreconditionRequired(response: { status: number } | null | undefined): boolean {
+  return response?.status === 428
+}
