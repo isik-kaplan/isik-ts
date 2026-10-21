@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-10-21
+
+### Added
+
+- `retryAfterOf(response)` in `@isikk/core`: how many seconds a response's `Retry-After` asks for,
+  as delta-seconds or any of the three HTTP-date forms. `null` with no response, no header, or one
+  that is neither form; never negative, and a date rounds up to the whole second.
+- `throttled`, a `(seconds: number | null) => string`, on `useAPISubmit`, `useValidatedFormState`
+  and `createSubmitHooks`' options, and on a submit's options to override it for one call. It is
+  called when a 429 is reported, with `retryAfterOf` of the response, so it can translate in the
+  current language. The default is English: `Too many requests. Try again in 30 seconds.`, or
+  `Too many requests. Wait a moment and try again.` when the server named no wait.
+
+### Changed
+
+- **Breaking:** a 429 reports the `throttled` message, whatever its body says and under any
+  envelope, and never reaches `setFormErrors`. It reported DRF's English throttle sentence, which
+  could not be translated, or for allauth's 429, which often has no message, the call's `failure`.
+- **Breaking:** `useAPISubmit` and `createSubmitHooks` take `{ envelope, throttled }` as their second
+  argument, not the envelope itself: `createSubmitHooks(toast, allauthEnvelope)` is now
+  `createSubmitHooks(toast, { envelope: allauthEnvelope })`.
+
+### Fixed
+
+- The allauth docs and comments said its 429s always carry their sentence in `errors`. They often
+  carry none.
+
 ## [0.14.0] - 2026-10-09
 
 ### Added

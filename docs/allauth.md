@@ -16,14 +16,14 @@ The two readers below, as the `ErrorEnvelope` that `useAPISubmit`, `useValidated
 import { allauthEnvelope } from '@isikk/core/allauth'
 import { useAPISubmit } from '@isikk/core/hooks'
 
-const { isSubmitting, submit } = useAPISubmit(toast, allauthEnvelope)
+const { isSubmitting, submit } = useAPISubmit(toast, { envelope: allauthEnvelope })
 ```
 
 An app with both DRF and allauth endpoints binds each once:
 
 ```tsx
 export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
-export const auth = createSubmitHooks(toast, allauthEnvelope)
+export const auth = createSubmitHooks(toast, { envelope: allauthEnvelope })
 ```
 
 ## toFormErrors
@@ -43,11 +43,16 @@ toFormErrors({ status: 400, errors: [{ message: 'Too short.', code: 'password_to
 
 ## detailOf
 
-Every message in the refusal, as one line. allauth's 409s and 429s carry the sentence a person should read in the same `errors` list a 400 uses, so this reads that list rather than a `detail` key.
+Every message in the refusal, as one line. allauth writes the sentence a person should read for a refusal not about a field - a wrong password, a 409 - in the same `errors` list a 400 uses, so this reads that list rather than a `detail` key.
 
 ```typescript
 import { detailOf } from '@isikk/core/allauth'
 
-detailOf({ status: 429, errors: [{ message: 'Too many failed login attempts.', code: 'too_many_login_attempts' }] })
-// 'Too many failed login attempts.'
+detailOf({
+  status: 400,
+  errors: [{ message: 'The password you specified is not correct.', code: 'incorrect_password' }],
+})
+// 'The password you specified is not correct.'
 ```
+
+allauth's 429 often carries no `errors` at all, and never a `Retry-After`. `useAPISubmit` does not read a 429's body under any envelope; it reports the app's `throttled` message instead (see [hooks.md](hooks.md#useapisubmit)).

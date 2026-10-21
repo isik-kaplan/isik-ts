@@ -57,10 +57,10 @@ describe('detailOf', () => {
   it('joins every message into one line', () => {
     expect(
       detailOf({
-        status: 429,
-        errors: [{ message: 'Too many requests.' }, { message: 'Try later.', param: 'email' }],
+        status: 409,
+        errors: [{ message: 'Already logged in.' }, { message: 'Log out first.', param: 'email' }],
       })
-    ).toBe('Too many requests. Try later.')
+    ).toBe('Already logged in. Log out first.')
   })
 
   it.each([

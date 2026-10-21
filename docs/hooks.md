@@ -160,13 +160,18 @@ function RevokeButton({ id }: { id: string }) {
 
 - **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess(result, { replayed })` receives the result, and whether the server answered with `Idempotent-Replayed: true` - worth saying "already done" rather than "saved".
 - **A 400** is read as field errors. Given `setFormErrors`, they go there and nothing is reported. Without it, every message is reported as one line.
+- **A 429** reports the `throttled` message, whatever the body says, and never reaches `setFormErrors` - see below.
 - **Any other 4xx** reports DRF's `detail` sentence. **A 5xx, or no response at all,** reports `failure` - that body is not written for a person, and often is not JSON.
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
 - A `call` that throws releases `isSubmitting` and rethrows.
 - Refreshing or navigating stays at the call site, through `onSuccess` - reaching for a router inside would make every caller a router consumer.
 - **A form that navigates on success passes `leavesOnSuccess: true`.** `isSubmitting` then stays set after the success, and every later submit is refused, because an app-router navigation is a fetch rather than a frame and the old screen stays mounted - and clickable - while it runs. The price is that a navigation that is cancelled or fails leaves the form disabled until a reload: a dead button is recoverable, a second write is not.
 - A submit made while another is in flight is refused: it resolves to `false` and its call is never made. `disabled={isSubmitting}` only takes effect once React commits, so this is what stops two clicks in one frame.
-- A second argument, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, allauthEnvelope)` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, another 4xx for its sentence.
+- The second argument, `{ envelope, throttled }`, is optional.
+- `envelope`, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, { envelope: allauthEnvelope })` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, a 429 not at all, another 4xx for its sentence.
+- `throttled`, `(seconds: number | null) => string`, is what a 429 reports. `seconds` is the response's `Retry-After` read by [`retryAfterOf`](http.md#retryafterof), or `null` when it named no wait - allauth's never does. It is called as the 429 is reported, so it can call i18next's `t()` in the current language. A call overrides it with its own `throttled` submit option. The default is English: `Too many requests. Try again in 30 seconds.`, or `Too many requests. Wait a moment and try again.` with no wait.
+
+  A 429 is not read from the body because three different things answer one - a DRF throttle with an English `detail` that cannot be translated, allauth with often no message at all, a proxy with its own - and they all mean the same thing to the person.
 
 ## useValidatedFormState
 
@@ -198,7 +203,7 @@ function RenameForm() {
 Returns everything `useFormState` does, plus `validate`, `isSubmitting` and `submit`.
 
 - `submit` validates first and never makes the call when the schema refuses. The call receives the schema's **output**, so a `.trim()` or a coercion is not lost.
-- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one. The fourth argument, `{ generateKey, envelope }`, replaces the default key generator and reads another server's refusals, as `useAPISubmit`'s second argument does.
+- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one. The fourth argument, `{ generateKey, envelope, throttled }`, replaces the default key generator, and reads another server's refusals and words a 429 as `useAPISubmit`'s second argument does.
 - The schema's issues and the server's 400 land in the same `formErrors`, so a refusal from either side renders in the same place. An issue is filed under the first segment of its path; one with no path goes under `non_field_errors`.
 - A server error naming a field the form state does not hold joins `non_field_errors` rather than being dropped - a serializer can refuse a column this form never shows.
 - `validate()` returns a `boolean`, so `if (!validate()) return` works. It needs a synchronous schema - every zod or valibot schema without an async refinement - and throws a `TypeError` for one that answers with a Promise, rather than returning a Promise that would always read as valid. `submit` awaits the schema, so it accepts either.
@@ -216,7 +221,17 @@ import { toast } from 'sonner'
 export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
 ```
 
-The returned hooks take every argument the originals do except the reporter. An optional second argument binds an `ErrorEnvelope` the same way: `createSubmitHooks(toast, allauthEnvelope)` for an app's allauth surfaces.
+The returned hooks take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 message once for every form:
+
+```tsx
+import i18next from 'i18next'
+
+const throttled = (seconds: number | null) =>
+  seconds === null ? i18next.t('errors.throttled') : i18next.t('errors.throttledFor', { count: seconds })
+
+export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast, { throttled })
+export const auth = createSubmitHooks(toast, { envelope: allauthEnvelope, throttled })
+```
 
 A factory rather than a provider or a module-level default: a provider is a component, and a default is a global that leaks between tests and turns a forgotten reporter from a type error into silence at runtime.
 

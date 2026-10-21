@@ -34,8 +34,9 @@ export function toFormErrors(body: unknown): FormErrors | undefined {
 }
 
 /**
- * Every message allauth sent, as one line - its 409s and 429s carry the sentence a person should
- * read in the same list a 400 uses.
+ * Every message allauth sent, as one line - a refusal not about a field, a 409 among them, carries
+ * the sentence a person should read in the same list a 400 uses. A 429 often carries none, which is
+ * why `useAPISubmit` reports its own `throttled` message for one rather than reading the body.
  */
 export function detailOf(body: unknown): string | undefined {
   const messages = errorsOf(body).map(({ message }) => message)

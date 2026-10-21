@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { allauthEnvelope } from '../../src/allauth'
-import type { APIResult, Reporter, StandardSchemaV1 } from '../../src/hooks'
+import type { APIResult, Reporter, StandardSchemaV1, ThrottledMessage } from '../../src/hooks'
 import { createSubmitHooks, useAPISubmit, useValidatedFormState } from '../../src/hooks'
 
 function reporter() {
@@ -763,7 +763,7 @@ describe('createSubmitHooks', () => {
 
 describe('error envelope', () => {
   const taken = { status: 400, errors: [{ message: 'That email is taken.', code: 'email_taken', param: 'name' }] }
-  const throttled = { status: 429, errors: [{ message: 'Too many requests.', code: 'too_many' }] }
+  const conflict = { status: 409, errors: [{ message: 'Already logged in.', code: 'already_logged_in' }] }
 
   async function submitThrough(hook: () => ReturnType<typeof useAPISubmit>, result: APIResult) {
     const { result: rendered } = renderHook(hook)
@@ -774,14 +774,14 @@ describe('error envelope', () => {
 
   it('reads an allauth refusal through useAPISubmit when given the allauth envelope', async () => {
     const report = reporter()
-    await submitThrough(() => useAPISubmit(report, allauthEnvelope), refusal(400, taken))
+    await submitThrough(() => useAPISubmit(report, { envelope: allauthEnvelope }), refusal(400, taken))
     expect(report.error).toHaveBeenCalledExactlyOnceWith('That email is taken.')
   })
 
   it("reads allauth's sentence on another 4xx", async () => {
     const report = reporter()
-    await submitThrough(() => useAPISubmit(report, allauthEnvelope), refusal(429, throttled))
-    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests.')
+    await submitThrough(() => useAPISubmit(report, { envelope: allauthEnvelope }), refusal(409, conflict))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Already logged in.')
   })
 
   it('reads an allauth refusal as a plain failure under the default envelope', async () => {
@@ -800,17 +800,163 @@ describe('error envelope', () => {
 
   it('binds the envelope in createSubmitHooks for useAPISubmit', async () => {
     const report = reporter()
-    const hooks = createSubmitHooks(report, allauthEnvelope)
-    await submitThrough(() => hooks.useAPISubmit(), refusal(429, throttled))
-    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests.')
+    const hooks = createSubmitHooks(report, { envelope: allauthEnvelope })
+    await submitThrough(() => hooks.useAPISubmit(), refusal(409, conflict))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Already logged in.')
   })
 
   it('binds the envelope in createSubmitHooks for useValidatedFormState', async () => {
-    const hooks = createSubmitHooks(reporter(), allauthEnvelope)
+    const hooks = createSubmitHooks(reporter(), { envelope: allauthEnvelope })
     const { result } = renderHook(() => hooks.useValidatedFormState(schema, valid))
     await act(async () => {
       await result.current.submit(async () => refusal(400, taken), { failure: 'Nope.' })
     })
     expect(result.current.formErrors).toEqual({ name: ['That email is taken.'] })
+  })
+})
+
+describe('a 429', () => {
+  function throttledResponse(error: unknown, headers?: HeadersInit): APIResult {
+    return { error, response: response(429, headers) }
+  }
+
+  const drfThrottle = { detail: 'Request was throttled. Expected available in 30 seconds.' }
+  const allauthThrottle = { status: 429 }
+
+  async function submitThrough(
+    hook: () => ReturnType<typeof useAPISubmit>,
+    result: APIResult,
+    throttled?: ThrottledMessage
+  ) {
+    const { result: rendered } = renderHook(hook)
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await rendered.current.submit(async () => result, { failure: 'Could not save.', throttled })
+    })
+    return ok
+  }
+
+  it("reports the default message naming Retry-After's wait, not DRF's detail", async () => {
+    const report = reporter()
+    const ok = await submitThrough(() => useAPISubmit(report), throttledResponse(drfThrottle, { 'Retry-After': '30' }))
+    expect(ok).toBe(false)
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests. Try again in 30 seconds.')
+  })
+
+  it('says second, not seconds, for one', async () => {
+    const report = reporter()
+    await submitThrough(() => useAPISubmit(report), throttledResponse(drfThrottle, { 'Retry-After': '1' }))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests. Try again in 1 second.')
+  })
+
+  it.each([
+    ['no Retry-After', undefined],
+    ['a Retry-After of 0', { 'Retry-After': '0' }],
+  ])('reports the default message with no wait for %s', async (_, headers) => {
+    const report = reporter()
+    await submitThrough(() => useAPISubmit(report), throttledResponse(allauthThrottle, headers))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests. Wait a moment and try again.')
+  })
+
+  it("reports the hook's throttled message with the seconds, under any envelope", async () => {
+    const report = reporter()
+    const throttled = vi.fn((seconds: number | null) => `wait ${seconds}`)
+    await submitThrough(
+      () => useAPISubmit(report, { envelope: allauthEnvelope, throttled }),
+      throttledResponse(
+        { status: 429, errors: [{ message: 'Too many failed login attempts.' }] },
+        { 'Retry-After': '7' }
+      )
+    )
+    expect(throttled).toHaveBeenCalledExactlyOnceWith(7)
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('wait 7')
+  })
+
+  it('hands the message null when the server named no wait', async () => {
+    const throttled = vi.fn(() => 'wait')
+    await submitThrough(() => useAPISubmit(reporter(), { throttled }), throttledResponse(allauthThrottle))
+    expect(throttled).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it('evaluates the message when the 429 is reported, not when the hook is made', async () => {
+    let language = 'en'
+    const throttled = () => `throttled in ${language}`
+    const report = reporter()
+    const hooks = createSubmitHooks(report, { throttled })
+    const { result } = renderHook(() => hooks.useAPISubmit())
+    language = 'tr'
+    await act(async () => {
+      await result.current.submit(async () => throttledResponse(allauthThrottle), { failure: 'Nope.' })
+    })
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('throttled in tr')
+  })
+
+  it("prefers the call's throttled message to the hook's", async () => {
+    const report = reporter()
+    await submitThrough(
+      () => useAPISubmit(report, { throttled: () => 'hook' }),
+      throttledResponse(drfThrottle),
+      () => 'call'
+    )
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('call')
+  })
+
+  it('binds the throttled message in createSubmitHooks for useAPISubmit', async () => {
+    const report = reporter()
+    const hooks = createSubmitHooks(report, { throttled: () => 'bound' })
+    await submitThrough(() => hooks.useAPISubmit(), throttledResponse(drfThrottle))
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('bound')
+  })
+
+  it('never reaches setFormErrors, even with field errors in the body', async () => {
+    const report = reporter()
+    const setFormErrors = vi.fn()
+    const { result } = renderHook(() => useAPISubmit(report))
+    await act(async () => {
+      await result.current.submit(async () => throttledResponse({ name: ['Too many.'] }), {
+        failure: 'Nope.',
+        setFormErrors,
+      })
+    })
+    expect(setFormErrors).not.toHaveBeenCalled()
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Too many requests. Wait a moment and try again.')
+  })
+
+  it('reports the bound message from useValidatedFormState and leaves formErrors empty', async () => {
+    const report = reporter()
+    const hooks = createSubmitHooks(report, { envelope: allauthEnvelope, throttled: (seconds) => `wait ${seconds}` })
+    const { result } = renderHook(() => hooks.useValidatedFormState(schema, valid))
+    await act(async () => {
+      await result.current.submit(
+        async () =>
+          throttledResponse({ status: 429, errors: [{ message: 'x', param: 'name' }] }, { 'Retry-After': '5' }),
+        { failure: 'Nope.' }
+      )
+    })
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('wait 5')
+    expect(result.current.formErrors).toBeUndefined()
+  })
+
+  it("passes useValidatedFormState's own throttled option through", async () => {
+    const report = reporter()
+    const { result } = renderHook(() => useValidatedFormState(schema, valid, report, { throttled: () => 'own' }))
+    await act(async () => {
+      await result.current.submit(async () => throttledResponse(drfThrottle), { failure: 'Nope.' })
+    })
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('own')
+  })
+
+  it('counts a 429 the caller calls a success as one', async () => {
+    const report = reporter()
+    const { result } = renderHook(() => useAPISubmit(report))
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.submit(async () => throttledResponse(undefined), {
+        failure: 'Nope.',
+        isSuccess: () => true,
+      })
+    })
+    expect(ok).toBe(true)
+    expect(report.error).not.toHaveBeenCalled()
   })
 })

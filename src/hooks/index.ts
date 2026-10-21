@@ -2,6 +2,7 @@ import type { ChangeEvent, DependencyList, DragEvent, EffectCallback } from 'rea
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import { type FormErrors, detailOf, messagesOf, toFormErrors } from '../drf'
+import { retryAfterOf } from '../http'
 import { browserSupportsPasskeys } from '../webauthn'
 
 export function useElementAttributes<T extends HTMLElement, K extends keyof T>(attributeKeys: K[]) {
@@ -553,6 +554,24 @@ export type ErrorEnvelope = {
 
 const drfEnvelope: ErrorEnvelope = { toFormErrors, detailOf }
 
+/**
+ * What a person reads when the server answers 429, given how many seconds `Retry-After` asked for -
+ * `null` when it named none. Called as the 429 is reported, so it can read the current language.
+ */
+export type ThrottledMessage = (seconds: number | null) => string
+
+const throttledInEnglish: ThrottledMessage = (seconds) =>
+  seconds
+    ? `Too many requests. Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`
+    : 'Too many requests. Wait a moment and try again.'
+
+export type SubmitHooksOptions = {
+  // How the server's refusals are read. Default: Django REST framework's, from `@isikk/core/drf`.
+  envelope?: ErrorEnvelope
+  // What a 429 reports. Default: an English sentence naming the wait, if the server named one.
+  throttled?: ThrottledMessage
+}
+
 /** What a typed client returns - openapi-fetch's result, with the status and not only the body. */
 export type APIResult = { data?: unknown; error?: unknown; response?: Response }
 
@@ -575,6 +594,8 @@ export type APISubmitOptions<R extends APIResult> = {
   // or fails leaves the form disabled until a reload. For a write that is the right way round - a
   // dead button is recoverable, a second charge is not.
   leavesOnSuccess?: boolean
+  // What a 429 reports on this call, in place of the hook's.
+  throttled?: ThrottledMessage
 }
 
 export type SubmitOutcome = {
@@ -599,6 +620,9 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  * `envelope` is given. Anything the envelope cannot read falls back to `failure`, so another server's
  * errors read as a plain failure, not as none.
  *
+ * A 429 is not read at all. Whoever answered it - a DRF throttle, allauth's rate limit, a proxy in
+ * front of both - the person is told the same thing, `throttled`, with the wait `Retry-After` named.
+ *
  * Refreshing or navigating after success stays at the call site, through `onSuccess`. Reaching for a
  * router here would make every caller a router consumer, including the ones that render their own
  * result. A caller that navigates says so with `leavesOnSuccess`.
@@ -607,7 +631,10 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  * call. `isSubmitting` disables a button only once React commits, so two clicks in one frame would
  * otherwise both get through.
  */
-export function useAPISubmit(reporter: Reporter, envelope: ErrorEnvelope = drfEnvelope) {
+export function useAPISubmit(
+  reporter: Reporter,
+  { envelope = drfEnvelope, throttled = throttledInEnglish }: SubmitHooksOptions = {}
+) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   // State answers too late to guard with: it changes on the next commit, not on this call.
   const locked = useRef(false)
@@ -640,6 +667,13 @@ export function useAPISubmit(reporter: Reporter, envelope: ErrorEnvelope = drfEn
     }
 
     const status = result.response?.status
+    // Ahead of the envelope: DRF's throttle sentence is English and can't be translated, and
+    // allauth's 429 often has no sentence at all.
+    if (status === 429) {
+      reporter.error((options.throttled ?? throttled)(retryAfterOf(result.response)))
+      return false
+    }
+
     const fields = status === 400 ? envelope.toFormErrors(result.error) : undefined
     if (fields && options.setFormErrors) {
       options.setFormErrors(fields)
@@ -678,10 +712,8 @@ export type StandardSchemaV1<Input = unknown, Output = Input> = {
   }
 }
 
-export type ValidatedFormStateOptions = IdempotencyKeyOptions & {
-  // How the server's refusals are read - see `useAPISubmit`.
-  envelope?: ErrorEnvelope
-}
+// How the server's refusals are read, and what a 429 says - see `useAPISubmit`.
+export type ValidatedFormStateOptions = IdempotencyKeyOptions & SubmitHooksOptions
 
 type ValidatedSubmitOptions<R extends APIResult> = Omit<APISubmitOptions<R>, 'setFormErrors'>
 
@@ -723,7 +755,7 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   options?: ValidatedFormStateOptions
 ) {
   const form = useFormState<InputOf<S>>(initialState)
-  const { isSubmitting, submit: submitToAPI } = useAPISubmit(reporter, options?.envelope)
+  const { isSubmitting, submit: submitToAPI } = useAPISubmit(reporter, options)
   const { keyFor, used } = useIdempotencyKey(options)
   // Typed against this call's concrete S, which a generic S cannot be checked against here - the
   // shape, a list of messages per field plus non_field_errors, is the same.
@@ -814,16 +846,17 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
  * default is a global that leaks between tests and turns a forgotten reporter from a type error into
  * silence at runtime. The hooks it returns take no reporter, so there is nothing to forget.
  *
- * `envelope` is bound the same way - an allauth surface passes `allauthEnvelope` here once.
+ * The options are bound the same way: an allauth surface passes `{ envelope: allauthEnvelope }` here
+ * once, and an app names its 429 message once, for every form.
  */
-export function createSubmitHooks(reporter: Reporter, envelope?: ErrorEnvelope) {
+export function createSubmitHooks(reporter: Reporter, bound: SubmitHooksOptions = {}) {
   return {
-    useAPISubmit: () => useAPISubmit(reporter, envelope),
+    useAPISubmit: () => useAPISubmit(reporter, bound),
     useValidatedFormState: <S extends StandardSchemaV1<object>>(
       schema: S,
       initialState: InputOf<S>,
       options?: IdempotencyKeyOptions
-    ) => useValidatedFormState(schema, initialState, reporter, { ...options, envelope }),
+    ) => useValidatedFormState(schema, initialState, reporter, { ...options, ...bound }),
   }
 }
 
