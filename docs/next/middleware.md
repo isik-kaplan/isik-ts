@@ -17,7 +17,7 @@ export const proxy = runProxyIfPathMatches(/^\/dashboard/)(async (request) => {
 })
 ```
 
-- **Naming**: Next.js 16 deprecated the `middleware.ts`/`export function middleware()` file convention in favor of `proxy.ts`/`export function proxy()` (`middleware.ts` still works today - it's how you opt into the edge runtime, since `proxy.ts` always runs on the Node.js runtime and can't be configured otherwise - but it's deprecated and Next's own migration codemod renames it). The wrapped handler's shape (`NextRequest` in, `NextResponse | void` out) is identical either way, so `runProxyIfPathMatches` works unchanged whichever file/export name you're using. `runMiddlewareIfPathMatches` is kept as an exact alias (`runMiddlewareIfPathMatches === runProxyIfPathMatches`) for code still targeting `middleware.ts`.
+- **Naming**: Next.js 16 deprecated the `middleware.ts`/`export function middleware()` file convention in favor of `proxy.ts`/`export function proxy()` (`middleware.ts` still works today - it's how you opt into the edge runtime, since `proxy.ts` always runs on the Node.js runtime and can't be configured otherwise - but it's deprecated and Next's own migration codemod renames it). The wrapped handler's shape (`NextRequest` in, `NextResponse | void` out) is identical either way, so `runProxyIfPathMatches` works unchanged whichever file/export name you're using. Code still on `middleware.ts` - the edge runtime - calls `runProxyIfPathMatches` too.
 
 ## DEFAULT_EXEMPT_PATTERNS
 

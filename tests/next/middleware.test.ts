@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { describe, expect, it, vi } from 'vitest'
 
-import { runMiddlewareIfPathMatches, runProxyIfPathMatches, stripEmptyQueryParams } from '../../src/next/middleware'
+import { runProxyIfPathMatches, stripEmptyQueryParams } from '../../src/next/middleware'
 
 describe('runProxyIfPathMatches', () => {
   it('runs the handler when the pathname matches', async () => {
@@ -107,12 +107,6 @@ describe('DEFAULT_EXEMPT_PATTERNS', () => {
     ['/sitemap.xml.evil', false],
   ])('%s is exempt by default: %s', async (pathname, expected) => {
     expect(await isExempt(pathname)).toBe(expected)
-  })
-})
-
-describe('runMiddlewareIfPathMatches', () => {
-  it('is the same function as runProxyIfPathMatches, kept as a naming-compatibility alias', () => {
-    expect(runMiddlewareIfPathMatches).toBe(runProxyIfPathMatches)
   })
 })
 

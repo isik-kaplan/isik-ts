@@ -53,10 +53,3 @@ export function stripEmptyQueryParams(request: NextRequest): NextResponse | unde
   url.search = cleaned.toString()
   return NextResponse.redirect(url)
 }
-
-// Next.js 16 deprecated the `middleware.ts`/`middleware` file convention in favor of
-// `proxy.ts`/`proxy` (middleware.ts still works today for edge-runtime use cases, but is
-// deprecated and defaults to being phased out). This alias exists so code written against either
-// naming keeps working - the wrapped handler's shape (NextRequest in, NextResponse|void out)
-// hasn't changed between the two, only what Next.js calls the file/export that uses it.
-export const runMiddlewareIfPathMatches = runProxyIfPathMatches

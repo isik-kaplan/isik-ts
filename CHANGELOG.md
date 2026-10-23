@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-10-23
+
+### Removed
+
+- **Breaking:** `runMiddlewareIfPathMatches` from `@isikk/core/next/middleware`. It was an exact
+  alias of `runProxyIfPathMatches`, kept for code written against Next.js's `middleware.ts` naming,
+  and the library's only compatibility alias. Call `runProxyIfPathMatches` instead: the function is
+  the same, and it works from `middleware.ts` and `proxy.ts` alike.
+
 ## [0.17.0] - 2026-10-23
 
 ### Added

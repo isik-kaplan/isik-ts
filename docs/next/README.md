@@ -1,6 +1,6 @@
 # next
 
-- [middleware.md](middleware.md) - `runProxyIfPathMatches`, `DEFAULT_EXEMPT_PATTERNS`, `stripEmptyQueryParams` (`runMiddlewareIfPathMatches` is a kept alias)
+- [middleware.md](middleware.md) - `runProxyIfPathMatches`, `DEFAULT_EXEMPT_PATTERNS`, `stripEmptyQueryParams`
 - [cookies.md](cookies.md) - `setCookie`, `getCookie`, `removeCookie` (Next.js Server Actions)
 - [request.md](request.md) - `getSafeRedirect`, `getRequestOrigin`
 - [session.md](session.md) - `createSessionGuards`
