@@ -65,6 +65,22 @@ getRequestOrigin(headers, {
 - `fallbackHost` is for a **single-origin** deployment only. In a multi-tenant one the backend resolves the tenant from the host, so falling back renders another tenant's page where a refusal belongs. Leave it out there, and let the throw refuse.
 - `allowedHosts: 'any'` turns the check off, for a deployment whose proxy sets the headers itself. It is spelled out so that trusting every host is something a reader can see.
 
+### Three questions, three helpers
+
+An app with one `getRequestOrigin()` helper is probably using it for more than one of these, and nothing at a call site says which - both answers are strings, so the compiler cannot tell either. Several call sites will need both, and want different values:
+
+```typescript
+const origin = await originHere()
+const api = createAPI(origin) // dial - must never be the visitor's host
+const callbackUrl = `${origin}/auth/callback-complete` // show - must be the visitor's host
+```
+
+Give each its own named helper, so the name carries the decision rather than the call site:
+
+- **Dial** - where the server connects. A fixed internal origin; never the request (see below).
+- **Show to the requester** - a URL rendered back to the very visitor who sent the request: a redirect, a callback, a link on the page they asked for. `getRequestOrigin`, and in a multi-tenant app `allowedHosts: 'any'` is right here. The customer domains are a database table, so a static or synchronous list would refuse exactly the domains the product sells. What makes `'any'` safe is the direction: a forged `Host` comes back to nobody but the one who forged it.
+- **Deliver to someone else** - an email, an invitation, a password-reset link, a webhook. Never the request's host, `'any'` or not: a forged `Host` would plant the attacker's domain in a link another person opens. Build these from the tenant's stored domain, read from the database by the tenant the backend resolved.
+
 ### Fetching from your own backend
 
 A Server Component fetching from your own API should connect to a fixed address, and carry the visitor's host as a header for the backend to read - never build the address from the request:
