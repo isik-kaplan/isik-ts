@@ -16,6 +16,13 @@ function renderKey() {
 }
 
 describe('useIdempotencyKey', () => {
+  it("answers the attempt's key as a header with headerFor", () => {
+    const result = renderKey()
+    expect(result.current.headerFor({ amount: 5 })).toEqual({ 'Idempotency-Key': 'key-1' })
+    expect(result.current.keyFor({ amount: 5 })).toBe('key-1')
+    expect(result.current.headerFor()).toEqual({ 'Idempotency-Key': 'key-2' })
+  })
+
   // A retry after a lost response has to be recognized as the same attempt.
   it('answers the same key for the same payload', () => {
     const result = renderKey()

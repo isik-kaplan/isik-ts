@@ -41,8 +41,21 @@ ifMatch('*') // { 'If-Match': '*' } - overwrite whatever is there
 ```
 
 - The tag is sent as given. An empty string throws a `TypeError`: it matches nothing, and is always a token that was never loaded.
+- The result is branded [`Versioned`](#versioned--keyed--idempotencykey), for a client method that requires it.
 - `useAPISubmit` and `useVersionedFormState` build this header themselves from an `etag` option (see [hooks.md](hooks.md#optimistic-concurrency)).
-- Send `'*'` only when a person chose to overwrite. A server may refuse it with a 428.
+- Send `'*'` only when a person chose to overwrite. A server may refuse it with a 428. `anyVersion()` says so by name.
+
+## anyVersion
+
+`{ 'If-Match': '*' }`, branded `Versioned` - write over whatever version is there. Its own name so an overwrite is a choice someone can find; `ifMatch('*')` still works.
+
+## idempotencyKey
+
+`{ 'Idempotency-Key': key }`, branded `Keyed`, to spread into a client's headers. An empty key throws a `TypeError`. `useIdempotencyKey`'s `headerFor(payload)` builds it from the attempt's key.
+
+## Versioned / Keyed / IdempotencyKey
+
+Type-only marks, nothing at runtime. `Versioned` is on headers whose write decided its version - from `ifMatch`, `anyVersion`, or a submit given an `etag`, `null` included. `Keyed` is on headers carrying a key the hooks or `idempotencyKey` made. `IdempotencyKey` is `string & Keyed`. A client method that takes `headers: WriteHeaders & Versioned & Keyed` refuses headers built without them at compile time. See [hooks.md](hooks.md#branded-headers).
 
 ## isPreconditionFailed / isPreconditionRequired
 

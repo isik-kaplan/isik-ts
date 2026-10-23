@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { etagOf, ifMatch, isPreconditionFailed, isPreconditionRequired, retryAfterOf } from '../../src/http'
+import {
+  anyVersion,
+  etagOf,
+  idempotencyKey,
+  ifMatch,
+  isPreconditionFailed,
+  isPreconditionRequired,
+  retryAfterOf,
+} from '../../src/http'
 
 function withRetryAfter(value?: string) {
   return { headers: new Headers(value === undefined ? {} : { 'Retry-After': value }) }
@@ -115,5 +123,21 @@ describe.each([
     ['a null response', null],
   ])('is false for %s', (_, response) => {
     expect(predicate(response)).toBe(false)
+  })
+})
+
+describe('anyVersion', () => {
+  it('is If-Match: *', () => {
+    expect(anyVersion()).toEqual({ 'If-Match': '*' })
+  })
+})
+
+describe('idempotencyKey', () => {
+  it('is the Idempotency-Key header for the key', () => {
+    expect(idempotencyKey('k-1')).toEqual({ 'Idempotency-Key': 'k-1' })
+  })
+
+  it('refuses an empty key', () => {
+    expect(() => idempotencyKey('')).toThrow(new TypeError('idempotencyKey: an empty key names no attempt'))
   })
 })

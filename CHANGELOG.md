@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-10-23
+
+### Added
+
+- `Versioned`, `Keyed` and `IdempotencyKey` in `@isikk/core`: type-only brands, so a write that
+  forgot its `etag` or its idempotency key fails to compile at the client method, rather than
+  answering 428 at runtime. A client method opts in by taking `headers: WriteHeaders & Versioned`
+  (and `& Keyed`). Nothing changes at runtime; the headers stay a plain record.
+  - `useAPISubmit`'s call receives `Versioned` headers when the options carry `etag` - a string or
+    `null`. `null` is the deliberate "no version, expect 428", so the brand means versioning was
+    decided, not that `If-Match` is present. An `etag` that may be `undefined` gives unbranded
+    headers, and the fix is `?? null`.
+  - `useVersionedFormState`'s headers are always `Versioned`, and `Keyed` unless
+    `idempotencyKey: false`.
+  - `useValidatedFormState`'s key, and `useIdempotencyKey`'s `keyFor`, are an `IdempotencyKey`,
+    still a string wherever one is taken.
+- `anyVersion()` for `If-Match: *`, and `idempotencyKey(key)` for the `Idempotency-Key` header,
+  in `@isikk/core`. `ifMatch` now answers a `Versioned` header, and `ifMatch('*')` still works.
+- `headerFor(payload)` on `useIdempotencyKey`: the attempt's key as a `Keyed` header.
+
+Every call site that compiles on 0.16 still compiles. The only new errors are at client methods
+changed to require a brand.
+
 ## [0.16.0] - 2026-10-21
 
 ### Added

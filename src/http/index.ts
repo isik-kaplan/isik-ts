@@ -66,10 +66,44 @@ export function etagOf(response: { headers: Headers } | null | undefined): strin
   return response?.headers.get('ETag') ?? null
 }
 
+declare const versioned: unique symbol
+declare const keyed: unique symbol
+
+/**
+ * Marks headers whose write decided its version: `ifMatch`, `anyVersion`, or a submit given an
+ * `etag` - `null` included, the deliberate "no version, expect a 428". A client method that takes
+ * `headers: WriteHeaders & Versioned` then refuses headers built without that decision, at compile
+ * time rather than as a 428.
+ *
+ * Type-only: nothing at runtime carries it, so the headers stay a plain record. It survives a
+ * spread, `{ ...headers, Authorization }`, and is lost by picking keys into a new object.
+ */
+export type Versioned = { readonly [versioned]: true }
+
+/** `Versioned`'s twin for an `Idempotency-Key`: headers, or a key, that a submit or `idempotencyKey` made. */
+export type Keyed = { readonly [keyed]: true }
+
+/** An idempotency key from `useIdempotencyKey` or a submit - still a string wherever one is taken. */
+export type IdempotencyKey = string & Keyed
+
 /** The `If-Match` header for a write, to spread into a client's headers. `'*'` matches any version. */
-export function ifMatch(etag: string): { 'If-Match': string } {
+export function ifMatch(etag: string): { 'If-Match': string } & Versioned {
   if (etag === '') throw new TypeError('ifMatch: an empty ETag matches nothing - pass the one the server sent, or "*"')
-  return { 'If-Match': etag }
+  return { 'If-Match': etag } as { 'If-Match': string } & Versioned
+}
+
+/**
+ * `If-Match: *` - write over whatever version is there. Its own name so an overwrite is a choice
+ * someone can find; send it only when a person made it. A server may refuse it with a 428.
+ */
+export function anyVersion(): { 'If-Match': '*' } & Versioned {
+  return ifMatch('*') as { 'If-Match': '*' } & Versioned
+}
+
+/** The `Idempotency-Key` header for a key, to spread into a client's headers. */
+export function idempotencyKey(key: string): { 'Idempotency-Key': IdempotencyKey } & Keyed {
+  if (key === '') throw new TypeError('idempotencyKey: an empty key names no attempt')
+  return { 'Idempotency-Key': key } as { 'Idempotency-Key': IdempotencyKey } & Keyed
 }
 
 /** A 412: the `If-Match` sent names a version someone else has since replaced. */

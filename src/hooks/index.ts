@@ -2,7 +2,17 @@ import type { ChangeEvent, DependencyList, DragEvent, EffectCallback } from 'rea
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import { type FormErrors, detailOf, messagesOf, toFormErrors } from '../drf'
-import { etagOf, ifMatch, isPreconditionFailed, isPreconditionRequired, retryAfterOf } from '../http'
+import {
+  type IdempotencyKey,
+  type Keyed,
+  type Versioned,
+  etagOf,
+  idempotencyKey,
+  ifMatch,
+  isPreconditionFailed,
+  isPreconditionRequired,
+  retryAfterOf,
+} from '../http'
 import { browserSupportsPasskeys } from '../webauthn'
 
 export function useElementAttributes<T extends HTMLElement, K extends keyof T>(attributeKeys: K[]) {
@@ -497,19 +507,24 @@ export function useIdempotencyKey({ generateKey = randomUUID }: IdempotencyKeyOp
   const attempt = useRef<{ snapshot: string | undefined; key: string } | null>(null)
 
   // `payload` is optional for a write with no body, which still wants one key per attempt.
-  function keyFor(payload?: unknown): string {
+  function keyFor(payload?: unknown): IdempotencyKey {
     const snapshot = JSON.stringify(payload)
     if (attempt.current === null || attempt.current.snapshot !== snapshot) {
       attempt.current = { snapshot, key: generateKey() }
     }
-    return attempt.current.key
+    return attempt.current.key as IdempotencyKey
+  }
+
+  // `keyFor` as the header, branded `Keyed` for a client method that requires one.
+  function headerFor(payload?: unknown) {
+    return idempotencyKey(keyFor(payload))
   }
 
   function used() {
     attempt.current = null
   }
 
-  return { keyFor, used }
+  return { keyFor, headerFor, used }
 }
 
 /**
@@ -702,8 +717,19 @@ export function useAPISubmit(
     setIsSubmitting(false)
   }
 
+  // Given an `etag` - `null` included - the call's headers are `Versioned`. One that may be undefined,
+  // as `note?.etag` is, takes the second overload and plain headers, so a client method requiring
+  // `Versioned` refuses them: the fix is `?? null`.
+  async function submit<R extends APIResult>(
+    call: (headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: APISubmitOptions<R> & { etag: string | null }
+  ): Promise<boolean>
   async function submit<R extends APIResult>(
     call: (headers: SubmitHeaders) => Promise<R>,
+    options: APISubmitOptions<R>
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (headers: SubmitHeaders & Versioned) => Promise<R>,
     options: APISubmitOptions<R>
   ): Promise<boolean> {
     if (locked.current) return false
@@ -711,7 +737,8 @@ export function useAPISubmit(
     setIsSubmitting(true)
     let result: R
     try {
-      result = await call(options.etag ? ifMatch(options.etag) : {})
+      // The brand is type-only, so the `{}` for no version needs it asserted.
+      result = await call(options.etag ? ifMatch(options.etag) : ({} as Versioned))
     } catch (error) {
       // A call that throws is the caller's to handle, but it must not leave the form locked.
       release()
@@ -871,7 +898,7 @@ export function useVersionedFormState<S extends StandardSchemaV1<object>>(
 
   const [conflict, setConflict] = useState<Conflict<InputOf<S>> | null>(null)
   // What `keepMine` sends again. Typed loosely: each submit has its own R.
-  const lastSubmit = useRef<Parameters<typeof submit> | null>(null)
+  const lastSubmit = useRef<Parameters<typeof run> | null>(null)
   // Typed against this call's concrete S, which a generic S cannot be checked against here - the
   // shape, a list of messages per field plus non_field_errors, is the same.
   const setFormErrors = form.setFormErrors as (errors: FormErrors | undefined) => void
@@ -926,16 +953,43 @@ export function useVersionedFormState<S extends StandardSchemaV1<object>>(
    * another request, and reusing the key would have the server answer it from the refused one.
    */
   async function submit<R extends APIResult>(
-    call: (value: OutputOf<S>, headers: SubmitHeaders) => Promise<R>,
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned & Keyed) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: true }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey: false }
+  ): Promise<boolean>
+  // A flag only known at runtime cannot promise a key, so its headers are not `Keyed`.
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned & Keyed) => Promise<R>,
     options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
   ): Promise<boolean> {
-    lastSubmit.current = [call, options] as Parameters<typeof submit>
+    lastSubmit.current = [call, options] as Parameters<typeof run>
+    return run(call, options)
+  }
+
+  async function run<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned & Keyed) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
+  ): Promise<boolean> {
     const mine = form.formState
     const result = record(await schema['~standard'].validate(mine))
     if (result.issues) return false
     const key = options.idempotencyKey === false ? undefined : keyFor(result.value)
     return submitToAPI(
-      (headers) => call(result.value, key === undefined ? headers : { ...headers, 'Idempotency-Key': key }),
+      // Without a key the headers are not `Keyed`, but only the overloads without one reach here so.
+      // The key is spread as it is rather than through `idempotencyKey`, which would refuse an empty
+      // one from a custom `generateKey` that 0.16 sent.
+      (headers) =>
+        call(
+          result.value,
+          (key === undefined ? headers : { ...headers, 'Idempotency-Key': key }) as typeof headers & Keyed
+        ),
       {
         ...options,
         etag: sending.current,
@@ -972,7 +1026,7 @@ export function useVersionedFormState<S extends StandardSchemaV1<object>>(
     if (!conflict || !lastSubmit.current) return false
     adopt(conflict.etag)
     setConflict(null)
-    return submit(...lastSubmit.current)
+    return run(...lastSubmit.current)
   }
 
   return { ...form, validate, isSubmitting, submit, etag, conflict, takeTheirs, keepMine }
@@ -1022,7 +1076,7 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
    * call's arity, which a default parameter or a rest parameter would misreport.
    */
   async function submit<R extends APIResult>(
-    call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
+    call: (value: OutputOf<S>, idempotencyKey: IdempotencyKey) => Promise<R>,
     options: ValidatedSubmitOptions<R> & { idempotencyKey?: true }
   ): Promise<boolean>
   async function submit<R extends APIResult>(
@@ -1030,12 +1084,15 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
     options: ValidatedSubmitOptions<R> & { idempotencyKey: false }
   ): Promise<boolean>
   async function submit<R extends APIResult>(
-    call: (value: OutputOf<S>, idempotencyKey: string) => Promise<R>,
+    call: (value: OutputOf<S>, idempotencyKey: IdempotencyKey) => Promise<R>,
     options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
   ): Promise<boolean> {
     // With no version there is no `If-Match`, so the headers hold the key or nothing. Only the second
     // overload leaves it undefined, and its call never reads one.
-    return submitWithHeaders((value, headers) => call(value, headers['Idempotency-Key']), options)
+    return submitWithHeaders(
+      (value, headers) => call(value, (headers as Partial<typeof headers>)['Idempotency-Key'] as IdempotencyKey),
+      options
+    )
   }
 
   return { ...rest, submit }

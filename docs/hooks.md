@@ -118,6 +118,7 @@ function PayButton({ amount }: { amount: number }) {
 - Because the key changes exactly when the payload does, the browser never sends one key with two payloads. A server's "same key, different payload" refusal then only ever means some other caller.
 - Spend it only on success. After a throw or a refusal, the same payload sent again is the same attempt.
 - `keyFor()` with no argument keys a write with no body.
+- `headerFor(payload)` is `keyFor` as the header, `{ 'Idempotency-Key': key }`, branded `Keyed` for a client method that requires one (see [Branded headers](#branded-headers)). `keyFor` answers an `IdempotencyKey`, which is still a string wherever one is taken.
 - Placing the header is the caller's - every client places it differently.
 - The default key is a v4 UUID: `crypto.randomUUID()` where there is one, and one built from `crypto.getRandomValues()` where there is not - a page on plain http behind a hostname or a LAN IP is not a secure context, and has no `randomUUID`. Bare Hermes has neither, and minting a key there throws an error naming `generateKey`; pass one, or install `react-native-get-random-values`: `useIdempotencyKey({ generateKey: uuid })`.
 - Payloads are compared by `JSON.stringify`. A reordered object gets a new key, which is harmless. A `File` reads as `{}`, so a multipart form passes its own snapshot - file names and sizes, say - as the payload. A `BigInt` or a cycle throws.
@@ -176,6 +177,27 @@ function RevokeButton({ id }: { id: string }) {
 
 - `stale`, `() => string`, is what a 412 reports, called as it is reported. A call overrides it with its own `stale` option. The default is English: `Someone else changed this while you were editing. Review their changes.`
 
+### Branded headers
+
+`Versioned` and `Keyed`, from `@isikk/core`, are type-only marks on headers whose write decided its version, or carries a key one of these hooks made. A client method that requires them refuses headers built without that decision - a forgotten `etag` becomes a compile error, not a 428 at runtime:
+
+```ts
+import type { Keyed, Versioned } from '@isikk/core'
+
+function updateNote(id: string, body: NoteUpdate, headers: WriteHeaders & Versioned) {
+  return api.PATCH('/notes/{id}/', { params: { path: { id } }, body, headers })
+}
+
+submit((headers) => updateNote(id, body, headers), { etag: note.etag, failure: 'Could not save.' }) // compiles
+submit((headers) => updateNote(id, body, headers), { failure: 'Could not save.' }) // does not
+```
+
+- The headers `submit` hands its call are `Versioned` when the options carry `etag` - a string, or `null`. The brand means **versioning was decided**, not that `If-Match` is present: `etag: null` is the deliberate "this write holds no version", which sends none and expects the server's 428.
+- An `etag` whose type may be `undefined` - `note?.etag` - leaves the headers unbranded, so the client method refuses them. The fix is `etag: note?.etag ?? null`, which says what was meant.
+- `ifMatch(etag)` and `anyVersion()` are `Versioned`; `idempotencyKey(key)` and `headerFor(payload)` are `Keyed`. A spread keeps the brand, `{ ...headers, Authorization }`; picking keys into a new object drops it.
+- Nothing carries it at runtime - the headers stay a plain record for any client.
+- When the call's headers do not fit, TypeScript reports it at the client method's argument. A mistyped option elsewhere in `submit` reads "No overload matches this call", which lists each overload.
+
 ### Optimistic concurrency
 
 For a server that versions its rows with `ETag` / `If-Match` - isik's `PreconditionMixin` among them. A write names the version it was based on, and a server holding a newer one refuses it with a 412 rather than overwriting someone else's change.
@@ -190,7 +212,7 @@ submit((headers) => api.DELETE('/notes/{id}/', { params: { path: { id } }, heade
 })
 ```
 
-- `etag` on the submit options is sent as `If-Match`, verbatim. `'*'` overwrites whatever is there. Without one the call is handed `{}`.
+- `etag` on the submit options is sent as `If-Match`, verbatim, and brands the call's headers `Versioned` (see above). `'*'` overwrites whatever is there. Without one, or with `null`, the call is handed `{}`.
 - Read the token from the item's `etag` body field where the server has one. It is never weakened by compression, and a cross-origin page can read it without `Access-Control-Expose-Headers: ETag`. `etagOf(response)` in [http.md](http.md) reads the header.
 - **A 412** reports `stale` - never the body's English `detail`, never through `setFormErrors` - and hands `onStale` the body's `current` (the server's version) and its token: `current.etag`, else the `ETag` header, else `null`. `submit` resolves to `false`.
 - **A 428** means the write was sent without a token the server needs. Only the code can fix that, so after reporting `failure` it throws `PreconditionRequiredError`, with the form unlocked, for an error boundary or error tracking to catch.
@@ -226,7 +248,7 @@ function RenameForm() {
 Returns everything `useFormState` does, plus `validate`, `isSubmitting` and `submit`.
 
 - `submit` validates first and never makes the call when the schema refuses. The call receives the schema's **output**, so a `.trim()` or a coercion is not lost.
-- The call's second argument is an idempotency key from `useIdempotencyKey`, keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one.
+- The call's second argument is an idempotency key from `useIdempotencyKey`, an `IdempotencyKey` - a string, branded so a client method can require one the hooks made - keyed on that output and spent on success: `submit((value, key) => api.POST('/orgs/', { body: value, headers: { 'Idempotency-Key': key } }), ...)`. A write that sends no key - a PATCH, say - passes `idempotencyKey: false` in the submit options: the call then takes the value alone, no key is minted, and so none is needed from a runtime that could not make one.
 - The fourth argument, `{ generateKey, envelope, throttled, stale }`, replaces the default key generator, and reads another server's refusals and words a 429 and a 412 as `useAPISubmit`'s second argument does.
 - A form editing a row the server versions with `ETag` / `If-Match` uses [`useVersionedFormState`](#useversionedformstate) instead.
 - The schema's issues and the server's 400 land in the same `formErrors`, so a refusal from either side renders in the same place. An issue is filed under the first segment of its path; one with no path goes under `non_field_errors`.
@@ -255,7 +277,7 @@ if (conflict) {
 }
 ```
 
-- `etag` is required, so a form cannot forget it and meet a 428; pass `null` for an item not loaded yet, and no `If-Match` is sent. The call's second argument is `{ 'Idempotency-Key'?, 'If-Match'? }`; `idempotencyKey: false` leaves the key out, as in `useValidatedFormState`.
+- `etag` is required, so a form cannot forget it and meet a 428; pass `null` for an item not loaded yet, and no `If-Match` is sent. The call's second argument is `{ 'Idempotency-Key'?, 'If-Match'? }`, always [`Versioned`](#branded-headers) and `Keyed` too unless `idempotencyKey: false` - or a flag known only at runtime, which cannot promise a key.
 - The `etag` it returns is the token the form holds now. A success's new one replaces it, from the body's `etag` field or the `ETag` header, so a second save sends the right one. A new `etag` option - a refetch - replaces it too.
 - A 412 sets `conflict: { mine, theirs, current, etag }`. `mine` is the form state as submitted. `current` is the 412 body's `current`. `theirs` is `current` as form state: by default the form's own keys read from it, keeping the form's value for any it lacks. Pass `fromServer(current, mine)` for a representation that does not map key for key. `etag` is the server's new token. The form keeps its own token until the person chooses.
 - `takeTheirs()` drops the edits: the form takes `theirs` and its token, and `formErrors` and `conflict` clear.
