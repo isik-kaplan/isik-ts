@@ -56,3 +56,41 @@ detailOf({
 ```
 
 allauth's 429 often carries no `errors` at all, and never a `Retry-After`. `useAPISubmit` does not read a 429's body under any envelope; it reports the app's `throttled` message instead (see [hooks.md](hooks.md#useapisubmit)).
+
+## errorsOf
+
+The `errors` list of an allauth refusal, typed: `AllauthError[]`, or `undefined` when the body has none. Only entries carrying a string `message` are kept, as `toFormErrors` and `detailOf` read them, so a malformed entry never reaches a page.
+
+```typescript
+import { type AllauthError, type AllauthErrorResponse, errorsOf } from '@isikk/core/allauth'
+
+errorsOf({
+  status: 400,
+  errors: [{ message: 'Too short.', code: 'password_too_short', param: 'password' }, { code: 'x' }],
+})
+// [{ message: 'Too short.', code: 'password_too_short', param: 'password' }]
+```
+
+`AllauthError` is `{ message, code?, param? }`, and `AllauthErrorResponse` is `{ status, errors }`.
+
+## Pending flows
+
+allauth answers a request it cannot finish yet - an unverified email, a second factor, a sensitive action - with a 401 naming the flow still owed: `{ status: 401, data: { flows: [...] }, meta }`. That is a step to take, not a refusal. These read it:
+
+```typescript
+import { hasPendingVerifyEmail, needsReauthentication, pendingFlow, pendingMfaTypes } from '@isikk/core/allauth'
+
+hasPendingVerifyEmail(body) // a login or signup owes email verification; allauth has mailed a link
+pendingMfaTypes(body) // ['totp', 'webauthn'] - the factors still owed - or null when none is pending
+needsReauthentication(body) // a reauthenticate or mfa_reauthenticate flow: prove who you are again
+pendingFlow(body, 'provider_signup') // any pending flow by id, or undefined
+```
+
+Each reads a body that is not allauth's - `null`, a DRF error, anything - as nothing pending. With `onRefusal` (see [hooks.md](hooks.md#useapisubmit)), a submit can treat a reauthentication 401 as a detour rather than an error:
+
+```tsx
+submit(call, {
+  failure: 'Could not save.',
+  onRefusal: (result) => needsReauthentication(result.error) && startReauth(),
+})
+```

@@ -39,8 +39,23 @@ function decode(value: string): string {
   }
 }
 
-export function getCookie(name: string, options: CookieEncodingOptions = {}): string | undefined {
-  for (const pair of document.cookie.split('; ')) {
+export interface GetCookieOptions extends CookieEncodingOptions {
+  /**
+   * A `Cookie` request header to read instead of `document.cookie` - on the server, the incoming
+   * request's, which a Server Component forwards to the API. The same parsing and decoding apply.
+   */
+  from?: string
+}
+
+/**
+ * Reads a cookie by exact name from `document.cookie`, or from a `Cookie` header given as `from`.
+ * Names are compared as strings, never as a pattern, so a name holding `.` or `+` matches only
+ * itself.
+ */
+export function getCookie(name: string, options: GetCookieOptions = {}): string | undefined {
+  const source = options.from ?? document.cookie
+  // A header may separate pairs with `;` and any amount of whitespace; `document.cookie` uses `; `.
+  for (const pair of source.split(';').map((part) => part.trim())) {
     const separatorIndex = pair.indexOf('=')
     if (separatorIndex === -1) {
       continue
@@ -53,10 +68,20 @@ export function getCookie(name: string, options: CookieEncodingOptions = {}): st
   return undefined
 }
 
+export type SameSite = 'Strict' | 'Lax' | 'None'
+
 export interface SetCookieOptions extends CookieEncodingOptions {
   /** Days until the cookie expires. Omit for a session cookie (cleared when the browser closes). */
   days?: number
   path?: string
+  /** Sent over https only. Default: whenever the page itself is https, so http development still works. */
+  secure?: boolean
+  /** Default `'Lax'`, written out rather than left to the browser. `'None'` needs `secure`. */
+  sameSite?: SameSite
+}
+
+function pageIsHttps(): boolean {
+  return globalThis.location?.protocol === 'https:'
 }
 
 /**
@@ -65,9 +90,12 @@ export interface SetCookieOptions extends CookieEncodingOptions {
  * percent-encoded.
  */
 export function setCookie(name: string, value: string, options: SetCookieOptions = {}): void {
-  const { days, path = '/', encoded = false } = options
+  const { days, path = '/', encoded = false, secure = pageIsHttps(), sameSite = 'Lax' } = options
   assertCookieName(name)
   assertCookiePath(path)
+  if (sameSite === 'None' && !secure) {
+    throw new TypeError('setCookie: sameSite "None" needs secure - browsers drop it otherwise')
+  }
   const stored = encoded ? encodeURIComponent(value) : value
   if (!COOKIE_VALUE.test(stored)) {
     throw new TypeError(
@@ -75,7 +103,7 @@ export function setCookie(name: string, value: string, options: SetCookieOptions
     )
   }
   const expires = days === undefined ? '' : `; expires=${new Date(Date.now() + days * 86_400_000).toUTCString()}`
-  document.cookie = `${name}=${stored}${expires}; path=${path}`
+  document.cookie = `${name}=${stored}${expires}; path=${path}; SameSite=${sameSite}${secure ? '; Secure' : ''}`
 }
 
 export function removeCookie(name: string, path: string = '/'): void {

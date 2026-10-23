@@ -15,10 +15,10 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [strings.md](strings.md) - `slugify`
 - [dates.md](dates.md) - `formattedDate` and friends, built on `date-fns`, and `toDate`
 - [files.md](files.md) - browser file/image helpers (MIME guessing, canvas re-encoding, base64)
-- [cookies.md](cookies.md) - `getCookie`, `setCookie`, `removeCookie` (browser, via `document.cookie`)
+- [cookies.md](cookies.md) - `getCookie` (also from a `Cookie` header), `setCookie`, `removeCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
 - [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHSLTriplet`
-- [http.md](http.md) - `retryAfterOf`, `etagOf`, `ifMatch`, `anyVersion`, `idempotencyKey`, `isPreconditionFailed`, `isPreconditionRequired`, and the `Versioned` / `Keyed` / `IdempotencyKey` brands
+- [http.md](http.md) - `createDjangoFetch`, `nameFetchFailures`, `retryAfterOf`, `etagOf`, `ifMatch`, `anyVersion`, `idempotencyKey`, `isPreconditionFailed`, `isPreconditionRequired`, and the `Versioned` / `Keyed` / `IdempotencyKey` brands
 
 ## React (`@isikk/core/hooks`)
 
@@ -34,7 +34,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 ## django-allauth (`@isikk/core/allauth`)
 
-- [allauth.md](allauth.md) - `toFormErrors`, `detailOf`, `allauthEnvelope`: readers for allauth's
+- [allauth.md](allauth.md) - `toFormErrors`, `detailOf`, `errorsOf`, `allauthEnvelope`, and the pending-flow readers: readers for allauth's
   headless error shape, for `useAPISubmit` and friends (peer: none, pure functions)
 
 ## WebAuthn (`@isikk/core/webauthn`)
@@ -56,8 +56,8 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 ## Next.js (`@isikk/core/next/*`)
 
-- [next/](next/README.md) - `runProxyIfPathMatches`, `stripEmptyQueryParams`, the `setCookie`/
-  `getCookie`/`removeCookie` Server Actions, `getSafeRedirect`, `getRequestOrigin`,
+- [next/](next/README.md) - `runProxyIfPathMatches`, `chainProxies`, `stripEmptyQueryParams`, the
+  server-side `setCookie`/`getCookie`/`removeCookie`, `getSafeRedirect`, `getRequestOrigin`,
   `createSessionGuards`, `publicConfig` (peer dep: `next`, `react` for `createSessionGuards` and
   `publicConfig`)
 

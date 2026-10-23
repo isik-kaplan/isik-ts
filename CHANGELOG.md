@@ -5,6 +5,83 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-10-23
+
+Security defaults are on, with opt-outs. Four of them change behaviour - see **Breaking** below,
+with what a project changes for each.
+
+### Changed
+
+- **Breaking:** `@isikk/core/next/cookies` exports plain server functions, not Server Actions. The
+  file was `'use server'`, so each export was a public endpoint any visitor could call with any
+  name: `getCookie` handed an HttpOnly session cookie to the page's script, and `setCookie` wrote
+  any cookie. Calling them from a Server Component, Route Handler or your own Server Action is
+  unchanged. A client component that called them directly must now call an action of its own,
+  which wraps them and names the cookies it allows:
+
+  ```tsx
+  'use server'
+  export async function setTheme(theme: 'light' | 'dark') {
+    await setCookie('theme', theme, { httpOnly: false })
+  }
+  ```
+
+- **Breaking:** that `setCookie` writes `HttpOnly; Secure; SameSite=Lax; Path=/` by default.
+  `secure` is left off only for a local-dev host over plain http. A cookie the page's script reads
+  needs `{ httpOnly: false }`. It takes `httpOnly`, `secure`, `sameSite`, `maxAge` (seconds) and
+  `path`; `sameSite: 'none'` without `secure` throws.
+- **Breaking:** `getRequestOrigin`'s options are required, and so is `allowedHosts` in them:
+  `X-Forwarded-Host` and `Host` are whatever the caller sent. Pass the hosts you answer on, or
+  `allowedHosts: 'any'` to keep the old behaviour where a proxy sets the headers:
+
+  ```ts
+  // 0.18
+  getRequestOrigin(headers)
+  // 0.19
+  getRequestOrigin(headers, { allowedHosts: ['app.example.com'], fallbackHost: 'app.example.com' })
+  ```
+
+- **Breaking:** the browser `setCookie` writes `SameSite=Lax` on every cookie, and `Secure` when
+  the page is https. Pass `sameSite: 'None'` (with `secure`) for a cookie that must cross sites, or
+  `secure: false` to leave Secure off.
+- `DEFAULT_EXEMPT_PATTERNS` needs the trailing slash: `/^\/_next\//` and `/^\/\.well-known\//`.
+  `/_nextanything` and `/.well-knownX` were exempt from whatever `runProxyIfPathMatches` guards,
+  and no longer are. Only a route at the bare `/_next` or `/.well-known` path itself is affected.
+- `onSuccess` receives the success branch only when success is the default test - for
+  openapi-fetch, `result.data` is no longer `T | undefined` there, and `data!` can go. With
+  `isSuccess` given it still receives the whole result. Each `submit` takes the two shapes as
+  separate overloads, plus a last one taking either, for a wrapper that passes options through.
+
+### Added
+
+- `createDjangoFetch({ baseUrl, ... })` in `@isikk/core`: a fetch for a typed client that sends
+  Django's CSRF header, forwards the `Cookie` header from the server (`cookieHeader`), and keeps a
+  `Request`'s own headers. Both go only to `baseUrl`'s origin unless `forwardTo` names others or
+  says `'any'`. `primeUrl` GETs the CSRF cookie first, in the browser, for an unsafe request made
+  without one - once for requests made together.
+- `nameFetchFailures(fetch)` in `@isikk/core`: a network failure reads `fetch failed: POST
+https://api.example.com/v0/orders/ (ECONNREFUSED)`, the original on `cause`. The query string is
+  left out unless `{ includeQuery: true }`.
+- `getCookie(name, { from: cookieHeader })` reads a `Cookie` request header instead of
+  `document.cookie`, with the same parsing and decoding.
+- `getSafeRedirect(next, { fallback, allow })`: `allow(url)` lets an absolute http(s) URL through
+  when it answers true. It is never asked about `javascript:`, `data:` or a protocol-relative path.
+  A string second argument is still the fallback.
+- `fallbackHost` on `getRequestOrigin`: a host outside `allowedHosts`, or none, gives its origin
+  instead of throwing, with the protocol from `isLocalDevHost`.
+- `isPlainHttpLocalDev(headers)` in `@isikk/core/next/request`.
+- `createSessionGuards<T, S>(fetchState, { sessionOf, redirectFor })` and `getState()`: the fetch
+  may return a state with the session inside, `redirectFor(state)` is asked first by both guards,
+  and `getState()` answers the same cached fetch. `createSessionGuards<Session>(fetch)` is unchanged.
+- `chainProxies(...handlers)` in `@isikk/core/next/middleware`: the first proxy to return a
+  response answers.
+- In `@isikk/core/allauth`: `errorsOf(body)` with the `AllauthError` and `AllauthErrorResponse`
+  types, and the pending-flow readers `pendingFlow`, `hasPendingVerifyEmail`, `pendingMfaTypes` and
+  `needsReauthentication`.
+- `onRefusal(result)` on submit options, and bindable on `useAPISubmit`, `useValidatedFormState`,
+  `useVersionedFormState` and `createSubmitHooks`: returning true handles a refusal, and nothing is
+  reported.
+
 ## [0.18.0] - 2026-10-23
 
 ### Removed

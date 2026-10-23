@@ -21,7 +21,7 @@ export const proxy = runProxyIfPathMatches(/^\/dashboard/)(async (request) => {
 
 ## DEFAULT_EXEMPT_PATTERNS
 
-The default `exemptPatterns` used when `runProxyIfPathMatches` is called without a second argument: Next.js internals (`/_next`), `.well-known`, and common root-level static asset filenames (favicon, manifest, robots.txt, sitemap, app icons - matching the exclusion list in Next's own [official proxy matcher examples](https://nextjs.org/docs/app/api-reference/file-conventions/proxy#negative-matching)). Exported so callers can spread it into a custom list instead of replacing it outright:
+The default `exemptPatterns` used when `runProxyIfPathMatches` is called without a second argument: Next.js internals (`/_next/`), `/.well-known/`, and common root-level static asset filenames (favicon, manifest, robots.txt, sitemap, app icons - matching the exclusion list in Next's own [official proxy matcher examples](https://nextjs.org/docs/app/api-reference/file-conventions/proxy#negative-matching)). Exported so callers can spread it into a custom list instead of replacing it outright:
 
 ```typescript
 import { DEFAULT_EXEMPT_PATTERNS, runProxyIfPathMatches } from '@isikk/core/next/middleware'
@@ -57,3 +57,22 @@ export function proxy(request: NextRequest) {
 ```
 
 Preserves repeated keys (`?tag=a&tag=b` stays `?tag=a&tag=b`) - it rebuilds the query string directly from `URLSearchParams` entries rather than round-tripping through a plain object (`Object.fromEntries(searchParams.entries())`), which would silently collapse repeats down to the last value.
+
+- The two directories need their trailing slash, so `/_nextanything` and `/.well-knownX` are guarded like any other path.
+
+## chainProxies
+
+Runs proxies in order and answers with the first response any of them returns. One that returns nothing passes the request on; a chain where none answers returns nothing.
+
+```typescript
+// proxy.ts
+import { chainProxies, runProxyIfPathMatches } from '@isikk/core/next/middleware'
+
+export const proxy = chainProxies(
+  stripEmptyQueryParams,
+  runProxyIfPathMatches(/^\/dashboard/)(requireLogin),
+  runProxyIfPathMatches(/^\/admin/)(requireStaff)
+)
+```
+
+- `NextResponse.next({ request: { headers } })` is a response too, so it ends the chain. A proxy that only rewrites request headers goes last.

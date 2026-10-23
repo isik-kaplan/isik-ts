@@ -60,3 +60,46 @@ Type-only marks, nothing at runtime. `Versioned` is on headers whose write decid
 ## isPreconditionFailed / isPreconditionRequired
 
 Whether a response is a 412 (the `If-Match` sent names a version someone else has replaced) or a 428 (the server needs an `If-Match` and none was sent). Both answer `false` with no response.
+
+## createDjangoFetch
+
+A `fetch` for a Django API, to hand a typed client such as openapi-fetch. It sends the CSRF token in the header Django reads, forwards the session cookie from the server, and keeps the headers of a `Request` it is given - openapi-fetch hands its fetch a `Request`, whose own headers a plain `fetch(request, init)` would replace with init's.
+
+```typescript
+import { createDjangoFetch, nameFetchFailures } from '@isikk/core'
+
+import createClient from 'openapi-fetch'
+
+// In the browser
+const api = createClient<paths>({ baseUrl, fetch: createDjangoFetch({ baseUrl, primeUrl: `${baseUrl}/csrf/` }) })
+
+// In a Server Component: the incoming request's cookies, forwarded
+const cookieHeader = (await headers()).get('cookie') ?? undefined
+const serverApi = createClient<paths>({
+  baseUrl,
+  fetch: createDjangoFetch({ baseUrl, cookieHeader, baseFetch: nameFetchFailures(fetch) }),
+})
+```
+
+- **Only to the API.** The `Cookie` header, the CSRF token and `credentials` go only to `baseUrl`'s origin. A request this fetch makes anywhere else carries none of them. `forwardTo: ['https://auth.example.com']` names other origins instead, and `forwardTo: 'any'` turns the check off. A relative URL is resolved against the page, so on the server, where there is none, it is never trusted.
+- **CSRF.** The token is read from the `csrftoken` cookie - `document.cookie` in the browser, `cookieHeader` on the server - and sent as `X-CSRFToken`. Both names are options: `csrfCookieName`, `csrfHeaderName`.
+- **Priming.** With `primeUrl`, an unsafe request (anything but GET, HEAD, OPTIONS, TRACE) made in the browser while the CSRF cookie is missing first GETs `primeUrl` - a view with Django's `ensure_csrf_cookie`. Requests made together share that one GET. A prime that fails lets the request go ahead and be refused as it would have been. It never primes on the server, or on every call.
+- `credentials` defaults to `'include'` on trusted requests; an untrusted one keeps whatever the caller passed.
+- `baseFetch` defaults to the global `fetch`, looked up at call time - so there is no unbound `fetch` to throw "Illegal invocation".
+- Nothing goes into a request body: the token travels as a header.
+
+## nameFetchFailures
+
+Wraps a fetch so a network failure names the call that failed. undici's own `fetch failed` carries only its own frames, so Next's error digest reads every network failure alike without it.
+
+```typescript
+import { nameFetchFailures } from '@isikk/core'
+
+const named = nameFetchFailures(fetch)
+await named('https://api.example.com/v0/orders/?token=x', { method: 'POST' })
+// Error: fetch failed: POST https://api.example.com/v0/orders/ (ECONNREFUSED), the original on `cause`
+```
+
+- The query string and fragment are left out by default - a query can carry a token, and the message lands in logs and error digests. `{ includeQuery: true }` keeps them.
+- The code in parentheses is the underlying error's `cause.code`, when there is one.
+- A response, any status, passes through untouched.

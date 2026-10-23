@@ -1378,3 +1378,68 @@ describe('optimistic concurrency', () => {
     })
   })
 })
+
+describe('onRefusal', () => {
+  async function submitRefused(
+    result: APIResult,
+    options: { onRefusal?: (result: APIResult) => boolean | void },
+    bound?: (result: APIResult) => boolean | void
+  ) {
+    const report = reporter()
+    const { result: hook } = renderHook(() => useAPISubmit(report, { onRefusal: bound }))
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await hook.current.submit(async () => result, { failure: 'Nope.', ...options })
+    })
+    return { ok, report, hook }
+  }
+
+  it('handles a refusal it answers true for, reporting nothing', async () => {
+    const onRefusal = vi.fn(() => true)
+    const refused = refusal(401, { status: 401, data: { flows: [{ id: 'reauthenticate' }] } })
+    const { ok, report, hook } = await submitRefused(refused, { onRefusal })
+    expect(ok).toBe(false)
+    expect(onRefusal).toHaveBeenCalledExactlyOnceWith(refused)
+    expect(report.error).not.toHaveBeenCalled()
+    expect(hook.current.isSubmitting).toBe(false)
+  })
+
+  it('goes on to report when it answers false or nothing', async () => {
+    for (const answer of [false, undefined]) {
+      const { report } = await submitRefused(refusal(403, { detail: 'No.' }), { onRefusal: () => answer })
+      expect(report.error).toHaveBeenCalledExactlyOnceWith('No.')
+    }
+  })
+
+  it('runs before a 428 throws, and can handle it', async () => {
+    const { ok } = await submitRefused(refusal(428, {}), { onRefusal: () => true })
+    expect(ok).toBe(false)
+  })
+
+  it('is never asked about a success', async () => {
+    const onRefusal = vi.fn(() => true)
+    const { ok } = await submitRefused({ response: response(200) }, { onRefusal })
+    expect(ok).toBe(true)
+    expect(onRefusal).not.toHaveBeenCalled()
+  })
+
+  it("uses the hook's own, and a call's replaces it", async () => {
+    const bound = vi.fn(() => true)
+    await submitRefused(refusal(401, {}), {}, bound)
+    expect(bound).toHaveBeenCalledOnce()
+    const own = vi.fn(() => true)
+    await submitRefused(refusal(401, {}), { onRefusal: own }, bound)
+    expect(own).toHaveBeenCalledOnce()
+    expect(bound).toHaveBeenCalledOnce()
+  })
+
+  it('binds through createSubmitHooks', async () => {
+    const report = reporter()
+    const hooks = createSubmitHooks(report, { onRefusal: () => true })
+    const { result } = renderHook(() => hooks.useAPISubmit())
+    await act(async () => {
+      await result.current.submit(async () => refusal(401, { detail: 'x' }), { failure: 'Nope.' })
+    })
+    expect(report.error).not.toHaveBeenCalled()
+  })
+})

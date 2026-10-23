@@ -1,22 +1,35 @@
 # next/cookies
 
-Import from `@isikk/core/next/cookies`. Requires `next` as a peer dependency (`>=14`). Thin wrappers around `next/headers`'s `cookies()`, callable from Server Actions/Server Components.
+Import from `@isikk/core/next/cookies`. Requires `next` as a peer dependency (`>=14`). Thin wrappers around `next/headers`'s `cookies()`, for Server Components, Route Handlers and an app's own Server Actions.
 
 ```typescript
 import { getCookie, removeCookie, setCookie } from '@isikk/core/next/cookies'
 
-await setCookie('theme', 'dark')
+await setCookie('session', token) // HttpOnly; Secure; SameSite=Lax; Path=/
+await setCookie('theme', 'dark', { httpOnly: false, maxAge: 60 * 60 * 24 * 365 }) // readable by the page
 await getCookie('theme') // 'dark'
 await removeCookie('theme')
 ```
 
+- `setCookie` is at its most guarded by default: `httpOnly: true`, `secure: true`, `sameSite: 'lax'`, `path: '/'`. A cookie the page's own script must read says so with `httpOnly: false`. `secure` is left off only for a local-dev host over plain http (see [`isPlainHttpLocalDev`](request.md#isplainhttplocaldev)), where a browser would drop it. `sameSite: 'none'` without `secure` throws.
+- `maxAge` is in seconds; omit it for a session cookie.
 - `getCookie` returns `null` (not `undefined`) when the cookie is absent, matching `next/headers`'s own convention.
-- These only work in a request-scoped context (a Server Action, Route Handler, or Server Component) - calling them outside of one throws, the same way calling `next/headers`'s `cookies()` directly would.
+- These only work in a request-scoped context - calling them outside of one throws, the same way calling `next/headers`'s `cookies()` directly would.
 
-## Why this is a separate entry point from `next/middleware`
+## Not Server Actions
 
-This file starts with a `'use server'` directive, which Next.js's compiler requires to be the literal first statement of the module it applies to, and requires every top-level export from a `'use server'` file to be an `async` function - `runProxyIfPathMatches` isn't one. Bundling this together with [`next/middleware`](middleware.md) in one file would either lose the directive (esbuild silently drops non-standard directive prologues like `'use server'` once other modules get concatenated ahead of it in a bundle) or make the bundle invalid. Keeping them as separate build entries means each compiles to its own output file, so the directive survives intact and never leaks onto exports it doesn't apply to.
+These are plain server functions. Until 0.19.0 the file was marked `'use server'`, which made each export a Server Action - a public endpoint any visitor can call, with any name. `getCookie` then handed any cookie to the page's script, an HttpOnly session cookie included, and `setCookie` wrote any name. An app that wants a cookie set from the client writes its own action around these, with its own list of names:
+
+```typescript
+'use server'
+
+import { setCookie } from '@isikk/core/next/cookies'
+
+export async function setTheme(theme: 'light' | 'dark') {
+  await setCookie('theme', theme, { httpOnly: false })
+}
+```
 
 ## Why this entry point is ESM-only
 
-This entry ships only an `import` condition, no `require`. esbuild's CJS output format always injects its own `"use strict"` prologue as the literal first line, which would push `'use server'` to second place and break Next's directive detection there too - the same class of problem the file-splitting above solves for bundling, just resurfacing in the CJS wrapper instead. Since `'use server'` only has meaning inside Next's ESM/RSC bundling pipeline anyway, a CJS build of this entry wouldn't be usable for its purpose regardless, so it's simply not built.
+It ships only an `import` condition, as it always has. `next/headers` only works inside Next's own bundling, which reads ESM.

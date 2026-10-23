@@ -595,6 +595,8 @@ export type SubmitHooksOptions = {
   throttled?: ThrottledMessage
   // What a 412 reports. Default: an English sentence.
   stale?: StaleMessage
+  // A refusal, before anything is reported - see `APISubmitOptions.onRefusal`. A call's own replaces it.
+  onRefusal?: (result: APIResult) => boolean | void
 }
 
 /** The headers a submit hands its call, to spread into the client's own: `If-Match`, and in a form the `Idempotency-Key`. */
@@ -632,10 +634,36 @@ function tokenOf(body: unknown, response: Response | undefined): string | null {
 /** What a typed client returns - openapi-fetch's result, with the status and not only the body. */
 export type APIResult = { data?: unknown; error?: unknown; response?: Response }
 
-export type APISubmitOptions<R extends APIResult> = {
+/**
+ * A result with its error branch dropped - what `onSuccess` receives when success is the default
+ * test, so openapi-fetch's `data` reads as present rather than `T | undefined`.
+ */
+export type SucceededResult<R> = Exclude<R, { error: {} }>
+
+/**
+ * Two shapes, told apart by `isSuccess`. With the default test a success never carries an `error`,
+ * so `onSuccess` gets the success branch. With `isSuccess` given, success can be the error branch -
+ * allauth's 409 - so it gets the whole result.
+ */
+export type DefaultSuccess<R extends APIResult> = {
+  isSuccess?: undefined
+  onSuccess?: (result: SucceededResult<R>, outcome: SubmitOutcome) => void
+}
+
+export type CustomSuccess<R extends APIResult> = {
   // Default: no error, and a response that is `ok` if there is one. Override for an endpoint whose
   // success arrives as a non-2xx - allauth answers an already-logged-in visitor with a 409.
-  isSuccess?: (result: R) => boolean
+  isSuccess: (result: R) => boolean
+  onSuccess?: (result: R, outcome: SubmitOutcome) => void
+}
+
+// Each `submit` takes these as separate overloads, `CustomSuccess` first: TypeScript cannot tell the
+// two apart by a function-valued `isSuccess` inside one union, and would type `onSuccess` as `any`.
+type SuccessHandling<R extends APIResult> = DefaultSuccess<R> | CustomSuccess<R>
+
+export type APISubmitOptions<R extends APIResult> = SuccessHandling<R> & APISubmitCommon<R>
+
+type APISubmitCommon<R extends APIResult> = {
   // Silence on success is the default - a form that visibly saved does not need telling. Pass one
   // only where the change happens somewhere the person is not looking.
   success?: string
@@ -644,7 +672,6 @@ export type APISubmitOptions<R extends APIResult> = {
   // nothing is reported; without one they are reported as one line, which is what a button with no
   // form behind it wants. Only ever called with errors there are.
   setFormErrors?: (errors: FormErrors) => void
-  onSuccess?: (result: R, outcome: SubmitOutcome) => void
   // The screen leaves on success - `onSuccess` navigates. Keeps `isSubmitting` set and refuses
   // another submit from then on, because an app-router navigation is a fetch, not a frame, and the
   // old screen stays mounted and clickable while it runs. The price: a navigation that is cancelled
@@ -660,7 +687,17 @@ export type APISubmitOptions<R extends APIResult> = {
   stale?: StaleMessage
   // A 412, after it is reported: the server's current version and its token.
   onStale?: (outcome: StaleOutcome) => void
+  // Called with any refusal before anything is reported. Returning true means the caller handled
+  // it - a 401 that starts reauthentication, say - and `submit` resolves to `false` with nothing
+  // reported. Replaces the hook's own.
+  onRefusal?: (result: R) => boolean | void
 }
+
+// The implementation signature, for a caller inside this module holding the options as the union.
+type SubmitImplementation = <R extends APIResult>(
+  call: (headers: SubmitHeaders & Versioned) => Promise<R>,
+  options: APISubmitOptions<R>
+) => Promise<boolean>
 
 export type SubmitOutcome = {
   // The server answered from an earlier attempt with the same `Idempotency-Key` rather than doing the
@@ -706,7 +743,7 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  */
 export function useAPISubmit(
   reporter: Reporter,
-  { envelope = drfEnvelope, throttled = throttledInEnglish, stale = staleInEnglish }: SubmitHooksOptions = {}
+  { envelope = drfEnvelope, throttled = throttledInEnglish, stale = staleInEnglish, onRefusal }: SubmitHooksOptions = {}
 ) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   // State answers too late to guard with: it changes on the next commit, not on this call.
@@ -722,8 +759,21 @@ export function useAPISubmit(
   // `Versioned` refuses them: the fix is `?? null`.
   async function submit<R extends APIResult>(
     call: (headers: SubmitHeaders & Versioned) => Promise<R>,
-    options: APISubmitOptions<R> & { etag: string | null }
+    options: APISubmitCommon<R> & CustomSuccess<R> & { etag: string | null }
   ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: APISubmitCommon<R> & DefaultSuccess<R> & { etag: string | null }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (headers: SubmitHeaders) => Promise<R>,
+    options: APISubmitCommon<R> & CustomSuccess<R>
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (headers: SubmitHeaders) => Promise<R>,
+    options: APISubmitCommon<R> & DefaultSuccess<R>
+  ): Promise<boolean>
+  // Last, for options already typed as either shape - a wrapper's parameter, say.
   async function submit<R extends APIResult>(
     call: (headers: SubmitHeaders) => Promise<R>,
     options: APISubmitOptions<R>
@@ -750,9 +800,12 @@ export function useAPISubmit(
 
     if (isSuccess) {
       if (options.success) reporter.success(options.success)
-      options.onSuccess?.(result, outcomeOf(result))
+      // The default test has ruled the error branch out, and a custom one types it as the whole result.
+      options.onSuccess?.(result as SucceededResult<R> & R, outcomeOf(result))
       return true
     }
+
+    if ((options.onRefusal ?? onRefusal)?.(result)) return false
 
     const status = result.response?.status
     // Ahead of the envelope: DRF's throttle sentence is English and can't be translated, and
@@ -828,7 +881,13 @@ export type VersionedFormStateOptions<Input = unknown> = ValidatedFormStateOptio
 }
 
 // The form owns the version it sends, so a submit takes no `etag` of its own.
-type ValidatedSubmitOptions<R extends APIResult> = Omit<APISubmitOptions<R>, 'setFormErrors' | 'etag'>
+type ValidatedCommon<R extends APIResult> = Omit<APISubmitCommon<R>, 'setFormErrors' | 'etag'>
+type ValidatedSubmitOptions<R extends APIResult> = ValidatedCommon<R> & SuccessHandling<R>
+
+type VersionedSubmitImplementation<Value> = <R extends APIResult>(
+  call: (value: Value, headers: SubmitHeaders & Versioned & Keyed) => Promise<R>,
+  options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
+) => Promise<boolean>
 
 /** A 412 in a form: what was sent, the server's version beside it, and the token to write over it with. */
 export type Conflict<Input> = {
@@ -954,13 +1013,30 @@ export function useVersionedFormState<S extends StandardSchemaV1<object>>(
    */
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned & Keyed) => Promise<R>,
-    options: ValidatedSubmitOptions<R> & { idempotencyKey?: true }
+    options: ValidatedCommon<R> & CustomSuccess<R> & { idempotencyKey?: true }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned & Keyed) => Promise<R>,
+    options: ValidatedCommon<R> & DefaultSuccess<R> & { idempotencyKey?: true }
   ): Promise<boolean>
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
-    options: ValidatedSubmitOptions<R> & { idempotencyKey: false }
+    options: ValidatedCommon<R> & CustomSuccess<R> & { idempotencyKey: false }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: ValidatedCommon<R> & DefaultSuccess<R> & { idempotencyKey: false }
   ): Promise<boolean>
   // A flag only known at runtime cannot promise a key, so its headers are not `Keyed`.
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: ValidatedCommon<R> & CustomSuccess<R> & { idempotencyKey?: boolean }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
+    options: ValidatedCommon<R> & DefaultSuccess<R> & { idempotencyKey?: boolean }
+  ): Promise<boolean>
+  // Last, for options already typed as either shape - a wrapper's parameter, say.
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, headers: SubmitHeaders & Versioned) => Promise<R>,
     options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
@@ -981,7 +1057,8 @@ export function useVersionedFormState<S extends StandardSchemaV1<object>>(
     const result = record(await schema['~standard'].validate(mine))
     if (result.issues) return false
     const key = options.idempotencyKey === false ? undefined : keyFor(result.value)
-    return submitToAPI(
+    // The options are the union here; the overloads are for callers who wrote one shape or the other.
+    return (submitToAPI as SubmitImplementation)(
       // Without a key the headers are not `Keyed`, but only the overloads without one reach here so.
       // The key is spread as it is rather than through `idempotencyKey`, which would refuse an empty
       // one from a custom `generateKey` that 0.16 sent.
@@ -994,13 +1071,14 @@ export function useVersionedFormState<S extends StandardSchemaV1<object>>(
         ...options,
         etag: sending.current,
         setFormErrors: acceptServerErrors,
-        onSuccess: (response, outcome) => {
+        // Typed against the whole result: whichever branch the caller's options picked, theirs gets it.
+        onSuccess: (response: R, outcome: SubmitOutcome) => {
           used()
           setConflict(null)
           if (outcome.etag !== null) adopt(outcome.etag)
-          options.onSuccess?.(response, outcome)
+          options.onSuccess?.(response as SucceededResult<R> & R, outcome)
         },
-        onStale: (outcome) => {
+        onStale: (outcome: StaleOutcome) => {
           used()
           setConflict({ mine, theirs: fromServer(outcome.current, mine), ...outcome })
           options.onStale?.(outcome)
@@ -1077,11 +1155,25 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
    */
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, idempotencyKey: IdempotencyKey) => Promise<R>,
-    options: ValidatedSubmitOptions<R> & { idempotencyKey?: true }
+    options: ValidatedCommon<R> & CustomSuccess<R> & { idempotencyKey?: true }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, idempotencyKey: IdempotencyKey) => Promise<R>,
+    options: ValidatedCommon<R> & DefaultSuccess<R> & { idempotencyKey?: true }
   ): Promise<boolean>
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>) => Promise<R>,
-    options: ValidatedSubmitOptions<R> & { idempotencyKey: false }
+    options: ValidatedCommon<R> & CustomSuccess<R> & { idempotencyKey: false }
+  ): Promise<boolean>
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>) => Promise<R>,
+    options: ValidatedCommon<R> & DefaultSuccess<R> & { idempotencyKey: false }
+  ): Promise<boolean>
+  // Last, for options already typed as either shape - a wrapper's parameter, say. The key may be
+  // missing, since the flag may be false.
+  async function submit<R extends APIResult>(
+    call: (value: OutputOf<S>, idempotencyKey?: IdempotencyKey) => Promise<R>,
+    options: ValidatedSubmitOptions<R> & { idempotencyKey?: boolean }
   ): Promise<boolean>
   async function submit<R extends APIResult>(
     call: (value: OutputOf<S>, idempotencyKey: IdempotencyKey) => Promise<R>,
@@ -1089,7 +1181,8 @@ export function useValidatedFormState<S extends StandardSchemaV1<object>>(
   ): Promise<boolean> {
     // With no version there is no `If-Match`, so the headers hold the key or nothing. Only the second
     // overload leaves it undefined, and its call never reads one.
-    return submitWithHeaders(
+    // The options are the union here; the overloads are for callers who wrote one shape or the other.
+    return (submitWithHeaders as VersionedSubmitImplementation<OutputOf<S>>)(
       (value, headers) => call(value, (headers as Partial<typeof headers>)['Idempotency-Key'] as IdempotencyKey),
       options
     )

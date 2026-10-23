@@ -69,6 +69,25 @@ function typeChecks() {
   // @ts-expect-error - nor with a flag known only at runtime.
   versioned.submit((_value, headers) => keyedWrite(headers), { failure: 'x', idempotencyKey: flag })
 
+  // openapi-fetch's result: a success branch and an error branch.
+  type Result =
+    | { data: { id: number }; error?: never; response: Response }
+    | { data?: never; error: { detail: string }; response: Response }
+  const call = async () => ({}) as Result
+
+  // With the default test, onSuccess gets the success branch: `data` is present.
+  submit(call, { failure: 'x', onSuccess: (result) => result.data.id })
+  // With isSuccess given, success can be the error branch, so it gets the whole result.
+  submit(call, {
+    failure: 'x',
+    isSuccess: () => true,
+    // @ts-expect-error - `data` may be undefined here.
+    onSuccess: (result) => result.data.id,
+  })
+  submit(call, { failure: 'x', isSuccess: () => true, onSuccess: (result) => result.data?.id ?? result.error?.detail })
+  validated.submit(async () => ({}) as Result, { failure: 'x', onSuccess: (result) => result.data.id })
+  versioned.submit(async () => ({}) as Result, { failure: 'x', onSuccess: (result) => result.data.id })
+
   return asString
 }
 

@@ -1,3 +1,5 @@
+import { getCookie } from '../cookies'
+
 const DAYS = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
 const LONG_DAYS = '(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)'
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -114,4 +116,145 @@ export function isPreconditionFailed(response: { status: number } | null | undef
 /** A 428: the server needs an `If-Match` and the write sent none. */
 export function isPreconditionRequired(response: { status: number } | null | undefined): boolean {
   return response?.status === 428
+}
+
+function urlOf(input: RequestInfo | URL): string {
+  return input instanceof Request ? input.url : String(input)
+}
+
+/** The URL without its query and fragment, which can carry tokens. A relative URL is cut by hand. */
+function withoutQuery(url: string): string {
+  return url.split(/[?#]/, 1)[0]
+}
+
+export interface NameFetchFailuresOptions {
+  /** Keep the query string in the message. Off by default: a query can carry a token, and the message lands in logs. */
+  includeQuery?: boolean
+}
+
+/**
+ * Wraps a fetch so a network failure names the call that failed: `fetch failed: POST
+ * https://api.example.com/v0/orders/ (ECONNREFUSED)`, the original kept on `cause`. undici's own
+ * `fetch failed` carries only its own frames, so Next's error digest reads every network failure
+ * alike without this.
+ */
+export function nameFetchFailures(baseFetch: typeof fetch, options: NameFetchFailuresOptions = {}): typeof fetch {
+  return async (input, init) => {
+    try {
+      return await baseFetch(input, init)
+    } catch (cause) {
+      const method = (init?.method ?? (input instanceof Request ? input.method : undefined) ?? 'GET').toUpperCase()
+      const url = options.includeQuery ? urlOf(input) : withoutQuery(urlOf(input))
+      const code = (cause as { cause?: { code?: unknown } } | null | undefined)?.cause?.code
+      const suffix = typeof code === 'string' ? ` (${code})` : ''
+      throw Object.assign(new Error(`fetch failed: ${method} ${url}${suffix}`), { cause })
+    }
+  }
+}
+
+// RFC 9110's safe methods: they change nothing, so Django checks no CSRF token on them.
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
+
+export interface DjangoFetchOptions {
+  /** The API's base URL. Its origin is the one the session cookie and the CSRF token are sent to. */
+  baseUrl: string
+  /** Default `'csrftoken'`, Django's `CSRF_COOKIE_NAME`. */
+  csrfCookieName?: string
+  /** Default `'X-CSRFToken'`, the header Django's `CSRF_HEADER_NAME` reads. */
+  csrfHeaderName?: string
+  /**
+   * Server-side only: the incoming request's `Cookie` header. It is forwarded to the API, and the
+   * CSRF token is read from it, since there is no `document.cookie` on the server.
+   */
+  cookieHeader?: string
+  /** The fetch to wrap. Default: the global one, looked up at call time. */
+  baseFetch?: typeof fetch
+  /** Sent with requests to a trusted origin. Default `'include'`. */
+  credentials?: RequestCredentials
+  /**
+   * A URL that sets the CSRF cookie - Django's `ensure_csrf_cookie`. In the browser, an unsafe request
+   * made while the cookie is missing GETs it first. Requests made together share that one GET, and a
+   * failed one lets the request go ahead and be refused as it would have been.
+   */
+  primeUrl?: string
+  /**
+   * The origins that receive the `Cookie` header, the CSRF token and `credentials`. Default: only
+   * `baseUrl`'s, so a request this fetch makes anywhere else carries none of them. `'any'` turns the
+   * check off.
+   */
+  forwardTo?: string[] | 'any'
+}
+
+function originOf(url: string, base?: string): string | undefined {
+  return URL.canParse(url, base) ? new URL(url, base).origin : undefined
+}
+
+/**
+ * A fetch for a Django API, to hand a typed client such as openapi-fetch: it sends the CSRF token in
+ * the header Django reads, forwards the session cookie on the server, and keeps the headers of a
+ * `Request` it is given, which openapi-fetch's own fetch call would otherwise drop.
+ *
+ * Nothing goes into a request body - the token travels as a header.
+ */
+export function createDjangoFetch(options: DjangoFetchOptions): typeof fetch {
+  const {
+    baseUrl,
+    csrfCookieName = 'csrftoken',
+    csrfHeaderName = 'X-CSRFToken',
+    cookieHeader,
+    baseFetch = (input, init) => fetch(input, init),
+    credentials = 'include',
+    primeUrl,
+    forwardTo,
+  } = options
+  const baseOrigin = originOf(baseUrl)
+  if (baseOrigin === undefined) {
+    throw new TypeError(`createDjangoFetch: baseUrl ${JSON.stringify(baseUrl)} is not an absolute URL`)
+  }
+  const trusted = forwardTo === 'any' ? undefined : new Set(forwardTo ?? [baseOrigin])
+  const inBrowser = typeof document !== 'undefined'
+
+  function readToken(): string | undefined {
+    if (cookieHeader !== undefined) return getCookie(csrfCookieName, { from: cookieHeader })
+    return inBrowser ? getCookie(csrfCookieName) : undefined
+  }
+
+  let priming: Promise<void> | undefined
+  function prime(url: string): Promise<void> {
+    priming ??= baseFetch(url, { credentials }).then(
+      () => undefined,
+      () => undefined
+    )
+    return priming.finally(() => {
+      priming = undefined
+    })
+  }
+
+  return async (input, init) => {
+    const request = input instanceof Request ? input : undefined
+    // A relative URL is resolved against the page, so it is trusted only when the page is the API.
+    const origin = originOf(urlOf(input), globalThis.location?.href)
+    const headers = new Headers(request?.headers)
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
+
+    if (origin === undefined || !(trusted?.has(origin) ?? true)) {
+      return baseFetch(input, { ...init, headers })
+    }
+
+    const method = (init?.method ?? request?.method ?? 'GET').toUpperCase()
+    let token = readToken()
+    if (
+      token === undefined &&
+      primeUrl !== undefined &&
+      inBrowser &&
+      cookieHeader === undefined &&
+      !SAFE_METHODS.has(method)
+    ) {
+      await prime(primeUrl)
+      token = readToken()
+    }
+    if (token !== undefined) headers.set(csrfHeaderName, token)
+    if (cookieHeader !== undefined) headers.set('Cookie', cookieHeader)
+    return baseFetch(input, { ...init, headers, credentials })
+  }
 }

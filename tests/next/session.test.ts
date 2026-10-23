@@ -68,3 +68,51 @@ describe('createSessionGuards', () => {
     })
   })
 })
+
+describe('createSessionGuards over a state', () => {
+  type State = { session: { userId: string } | null; pendingSignup: boolean; language: string }
+  const state = (overrides: Partial<State> = {}): State => ({
+    session: null,
+    pendingSignup: false,
+    language: 'en',
+    ...overrides,
+  })
+  const options = {
+    sessionOf: (s: State) => s.session,
+    redirectFor: (s: State) => (s.pendingSignup ? '/auth/complete-signup' : null),
+  }
+
+  beforeEach(() => {
+    redirectMock.mockClear()
+  })
+
+  it('reads the session out of the state', async () => {
+    const guards = createSessionGuards(async () => state({ session: { userId: '1' } }), options)
+    await expect(guards.requireSession()).resolves.toEqual({ userId: '1' })
+    await expect(guards.redirectIfPresent()).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('sends a visitor where redirectFor says, before either guard decides', async () => {
+    const guards = createSessionGuards(async () => state({ pendingSignup: true }), options)
+    await expect(guards.requireSession()).rejects.toThrow('NEXT_REDIRECT:/auth/complete-signup')
+    await expect(guards.redirectIfPresent()).rejects.toThrow('NEXT_REDIRECT:/auth/complete-signup')
+  })
+
+  it('goes on when redirectFor answers null', async () => {
+    const guards = createSessionGuards(async () => state(), options)
+    await expect(guards.requireSession()).rejects.toThrow('NEXT_REDIRECT:/login')
+    await expect(guards.redirectIfPresent()).resolves.toBeUndefined()
+  })
+
+  it('hands back the state from the same fetch', async () => {
+    const fetchState = vi.fn(async () => state({ language: 'tr' }))
+    const guards = createSessionGuards(fetchState, options)
+    await expect(guards.getState()).resolves.toEqual(state({ language: 'tr' }))
+    expect(fetchState).toHaveBeenCalledOnce()
+  })
+
+  it('takes the fetched value as the session by default', async () => {
+    const guards = createSessionGuards<{ userId: string }>(async () => ({ userId: '1' }))
+    await expect(guards.getState()).resolves.toEqual({ userId: '1' })
+  })
+})

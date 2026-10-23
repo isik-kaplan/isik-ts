@@ -2,7 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { describe, expect, it, vi } from 'vitest'
 
-import { runProxyIfPathMatches, stripEmptyQueryParams } from '../../src/next/middleware'
+import {
+  DEFAULT_EXEMPT_PATTERNS,
+  chainProxies,
+  runProxyIfPathMatches,
+  stripEmptyQueryParams,
+} from '../../src/next/middleware'
 
 describe('runProxyIfPathMatches', () => {
   it('runs the handler when the pathname matches', async () => {
@@ -133,5 +138,45 @@ describe('stripEmptyQueryParams', () => {
     const response = stripEmptyQueryParams(request)
 
     expect(response?.headers.get('location')).toBe('https://example.com/posts?tag=a&tag=b')
+  })
+})
+
+describe('DEFAULT_EXEMPT_PATTERNS', () => {
+  it.each([
+    ['/_nextanything', false],
+    ['/_next', false],
+    ['/.well-knownX', false],
+    ['/.well-known', false],
+    ['/_next/x', true],
+    ['/.well-known/x', true],
+    ['/api/_next/x', false],
+    ['/api/.well-known/x', false],
+  ])('%s is exempt: %s', (pathname, expected) => {
+    expect(DEFAULT_EXEMPT_PATTERNS.some((pattern) => pattern.test(pathname))).toBe(expected)
+  })
+})
+
+describe('chainProxies', () => {
+  const request = new NextRequest('https://example.com/a')
+
+  it('answers with the first response, and runs nothing after it', async () => {
+    const first = vi.fn(async () => undefined)
+    const answer = NextResponse.redirect('https://example.com/login')
+    const second = vi.fn(() => answer)
+    const third = vi.fn(async () => NextResponse.next())
+    await expect(chainProxies(first, second, third)(request)).resolves.toBe(answer)
+    expect(first).toHaveBeenCalledWith(request)
+    expect(second).toHaveBeenCalledWith(request)
+    expect(third).not.toHaveBeenCalled()
+  })
+
+  it('answers nothing when no proxy answers', async () => {
+    await expect(
+      chainProxies(
+        async () => undefined,
+        () => undefined
+      )(request)
+    ).resolves.toBeUndefined()
+    await expect(chainProxies()(request)).resolves.toBeUndefined()
   })
 })

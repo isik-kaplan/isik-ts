@@ -5,10 +5,9 @@ import { defineConfig } from 'tsup'
 // array-config entries in parallel, and this config's `clean: false` racing against the main
 // config's `clean: true` intermittently deleted this entry's freshly-written output.
 //
-// ESM-only because esbuild's CJS output always injects "use strict" as the literal first line,
-// which would push our "use server" directive to second place and break Next.js's Server Actions
-// detection. Since 'use server' only has meaning inside Next's ESM/RSC bundling pipeline anyway, a
-// CJS build of this entry wouldn't be usable for its purpose regardless.
+// ESM-only, as it has always shipped: `next/headers` only works inside Next's own bundling, which
+// reads ESM. It once carried a 'use server' directive, which a CJS build's "use strict" would have
+// displaced; it no longer does, and no CJS build was added, so the package's exports stay as they were.
 export default defineConfig({
   entry: {
     'next/cookies/index': 'src/next/cookies.ts',

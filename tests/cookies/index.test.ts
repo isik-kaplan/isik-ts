@@ -86,7 +86,7 @@ describe('setCookie', () => {
   it('sets an expiry when days is provided', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     setCookie('theme', 'dark', { days: 7 })
-    expect(cookieSetter).toHaveBeenCalledWith(expect.stringMatching(/^theme=dark; expires=.+; path=\/$/))
+    expect(cookieSetter).toHaveBeenCalledWith(expect.stringMatching(/^theme=dark; expires=.+; path=\/; SameSite=Lax$/))
     cookieSetter.mockRestore()
   })
 
@@ -98,7 +98,7 @@ describe('setCookie', () => {
     setCookie('theme', 'dark', { days: 7 })
 
     const expected = new Date(Date.parse('2024-01-01T00:00:00.000Z') + 7 * 86_400_000).toUTCString()
-    expect(cookieSetter).toHaveBeenCalledWith(`theme=dark; expires=${expected}; path=/`)
+    expect(cookieSetter).toHaveBeenCalledWith(`theme=dark; expires=${expected}; path=/; SameSite=Lax`)
 
     cookieSetter.mockRestore()
     vi.useRealTimers()
@@ -143,7 +143,7 @@ describe('setCookie', () => {
   it('percent-encodes the value when asked to, and reads it back decoded', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     setCookie('q', 'a;b=c d', { encoded: true })
-    expect(cookieSetter).toHaveBeenCalledWith('q=a%3Bb%3Dc%20d; path=/')
+    expect(cookieSetter).toHaveBeenCalledWith('q=a%3Bb%3Dc%20d; path=/; SameSite=Lax')
     cookieSetter.mockRestore()
 
     setCookie('q', 'a;b=c d', { encoded: true })
@@ -179,7 +179,7 @@ describe('setCookie', () => {
   it('uses a custom path when provided', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     setCookie('theme', 'dark', { path: '/app' })
-    expect(cookieSetter).toHaveBeenCalledWith('theme=dark; path=/app')
+    expect(cookieSetter).toHaveBeenCalledWith('theme=dark; path=/app; SameSite=Lax')
     cookieSetter.mockRestore()
   })
 })
@@ -207,7 +207,7 @@ describe('cookie paths', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     setCookie('a', 'b', { path: '/my app/çerez/ ~' })
     removeCookie('a', '/my app/çerez/ ~')
-    expect(cookieSetter).toHaveBeenNthCalledWith(1, 'a=b; path=/my app/çerez/ ~')
+    expect(cookieSetter).toHaveBeenNthCalledWith(1, 'a=b; path=/my app/çerez/ ~; SameSite=Lax')
     expect(cookieSetter).toHaveBeenNthCalledWith(2, 'a=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/my app/çerez/ ~')
     cookieSetter.mockRestore()
   })
@@ -242,6 +242,68 @@ describe('removeCookie', () => {
     const cookieSetter = vi.spyOn(document, 'cookie', 'set')
     removeCookie('session')
     expect(cookieSetter).toHaveBeenCalledWith('session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/')
+    cookieSetter.mockRestore()
+  })
+})
+
+describe('getCookie from a Cookie header', () => {
+  it.each([
+    ['the first pair', 'csrftoken=abc; sessionid=s1', 'csrftoken', 'abc'],
+    ['a later pair', 'a=1; csrftoken=abc', 'csrftoken', 'abc'],
+    ['a pair after extra whitespace', 'a=1;   csrftoken=abc', 'csrftoken', 'abc'],
+    ['a pair after no whitespace', 'a=1;csrftoken=abc', 'csrftoken', 'abc'],
+    ['an empty value', 'csrftoken=', 'csrftoken', ''],
+  ])('reads %s', (_, header, name, value) => {
+    expect(getCookie(name, { from: header })).toBe(value)
+  })
+
+  it('reads the header rather than document.cookie', () => {
+    document.cookie = 'csrftoken=from-document'
+    expect(getCookie('csrftoken', { from: 'csrftoken=from-header' })).toBe('from-header')
+    expect(getCookie('csrftoken', { from: '' })).toBeUndefined()
+    clearCookies()
+  })
+
+  it('compares the name as a string, not a pattern', () => {
+    expect(getCookie('a.b', { from: 'aXb=wrong; a.b=right' })).toBe('right')
+    expect(getCookie('a+', { from: 'aa=wrong' })).toBeUndefined()
+  })
+
+  it('decodes when asked, and keeps a stray % rather than throwing', () => {
+    expect(getCookie('q', { from: 'q=a%3Bb', encoded: true })).toBe('a;b')
+    expect(getCookie('q', { from: 'q=100%', encoded: true })).toBe('100%')
+  })
+
+  it('answers undefined for a missing name or a pair with no =', () => {
+    expect(getCookie('missing', { from: 'a=1; flag' })).toBeUndefined()
+    expect(getCookie('flag', { from: 'a=1; flag' })).toBeUndefined()
+  })
+})
+
+describe('setCookie SameSite and Secure', () => {
+  it.each([
+    ['Strict', 'a=b; path=/; SameSite=Strict'],
+    ['Lax', 'a=b; path=/; SameSite=Lax'],
+  ] as const)('writes SameSite=%s', (sameSite, written) => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    setCookie('a', 'b', { sameSite })
+    expect(cookieSetter).toHaveBeenCalledWith(written)
+    cookieSetter.mockRestore()
+  })
+
+  it('writes Secure when asked, on an http page', () => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    setCookie('a', 'b', { secure: true, sameSite: 'None' })
+    expect(cookieSetter).toHaveBeenCalledWith('a=b; path=/; SameSite=None; Secure')
+    cookieSetter.mockRestore()
+  })
+
+  it('refuses SameSite=None without Secure, and writes nothing', () => {
+    const cookieSetter = vi.spyOn(document, 'cookie', 'set')
+    expect(() => setCookie('a', 'b', { sameSite: 'None' })).toThrow(
+      new TypeError('setCookie: sameSite "None" needs secure - browsers drop it otherwise')
+    )
+    expect(cookieSetter).not.toHaveBeenCalled()
     cookieSetter.mockRestore()
   })
 })

@@ -159,17 +159,18 @@ function RevokeButton({ id }: { id: string }) {
 
 `call` returns an openapi-fetch-shaped result, `{ data?, error?, response? }`. `submit` resolves to whether it succeeded.
 
-- **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess(result, { replayed, etag })` receives the result; whether the server answered with `Idempotent-Replayed: true`, which is worth saying "already done" rather than "saved"; and the new version's token (the body's `etag` field, else the `ETag` header, else `null`).
+- **Success** is no `error` and a response that is `ok` (or no response at all). Pass `isSuccess(result)` for an endpoint that succeeds with a non-2xx - allauth answers an already-logged-in visitor with a 409. `onSuccess(result, { replayed, etag })` receives the result - with the default test, its success branch only, so openapi-fetch's `result.data` is present rather than `T | undefined`; with `isSuccess` given, the whole result, since success may then be the error branch; whether the server answered with `Idempotent-Replayed: true`, which is worth saying "already done" rather than "saved"; and the new version's token (the body's `etag` field, else the `ETag` header, else `null`).
 - **A 400** is read as field errors. Given `setFormErrors`, they go there and nothing is reported. Without it, every message is reported as one line.
 - **A 429** reports the `throttled` message, whatever the body says, and never reaches `setFormErrors` - see below.
 - **A 412** reports the `stale` message and calls `onStale({ current, etag })` - see [Optimistic concurrency](#optimistic-concurrency). **A 428** reports `failure` and throws `PreconditionRequiredError`.
 - **Any other 4xx** reports DRF's `detail` sentence. **A 5xx, or no response at all,** reports `failure` - that body is not written for a person, and often is not JSON.
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
+- **`onRefusal(result)`** is called with any refusal before anything is reported. Returning true means the caller handled it - a 401 that starts reauthentication, say - and `submit` resolves to `false` with nothing reported, 429s, 412s and 428s included. A call's own replaces the one bound on the hook. The rule is the caller's: allauth's `needsReauthentication` (see [allauth.md](allauth.md#pending-flows)) reads the 401.
 - A `call` that throws releases `isSubmitting` and rethrows.
 - Refreshing or navigating stays at the call site, through `onSuccess` - reaching for a router inside would make every caller a router consumer.
 - **A form that navigates on success passes `leavesOnSuccess: true`.** `isSubmitting` then stays set after the success, and every later submit is refused, because an app-router navigation is a fetch rather than a frame and the old screen stays mounted - and clickable - while it runs. The price is that a navigation that is cancelled or fails leaves the form disabled until a reload: a dead button is recoverable, a second write is not.
 - A submit made while another is in flight is refused: it resolves to `false` and its call is never made. `disabled={isSubmitting}` only takes effect once React commits, so this is what stops two clicks in one frame.
-- The second argument, `{ envelope, throttled, stale }`, is optional.
+- The second argument, `{ envelope, throttled, stale, onRefusal }`, is optional.
 - `envelope`, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, { envelope: allauthEnvelope })` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, a 429 not at all, another 4xx for its sentence.
 - `throttled`, `(seconds: number | null) => string`, is what a 429 reports. `seconds` is the response's `Retry-After` read by [`retryAfterOf`](http.md#retryafterof), or `null` when it named no wait - allauth's never does. It is called as the 429 is reported, so it can call i18next's `t()` in the current language. A call overrides it with its own `throttled` submit option. The default is English: `Too many requests. Try again in 30 seconds.`, or `Too many requests. Wait a moment and try again.` with no wait.
 
@@ -300,7 +301,7 @@ import { toast } from 'sonner'
 export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
 ```
 
-The returned hooks - `useAPISubmit`, `useValidatedFormState` and `useVersionedFormState` - take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled, stale }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 and 412 messages once for every form:
+The returned hooks - `useAPISubmit`, `useValidatedFormState` and `useVersionedFormState` - take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled, stale, onRefusal }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 and 412 messages once for every form:
 
 ```tsx
 import i18next from 'i18next'
