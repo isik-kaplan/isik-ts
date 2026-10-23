@@ -47,14 +47,16 @@ export interface GetRequestOriginOptions {
   isLocalDevHost?: (host: string) => boolean
   /**
    * The hosts this deployment answers on, port included when there is one. A string matches the
-   * whole host, ignoring case; a RegExp is tested against it. Required: `X-Forwarded-Host` and
+   * whole host, ignoring case; a RegExp is tested against it; a function is asked. Required: `X-Forwarded-Host` and
    * `Host` are whatever the caller sent, so without a list any caller names the origin. `'any'`
    * turns the check off, for a deployment behind a proxy that sets them itself.
    */
-  allowedHosts: Array<string | RegExp> | 'any'
+  allowedHosts: AllowedHost[] | 'any'
   /**
    * The host to use when the request's is missing or not allowed, instead of throwing. Its protocol
-   * comes from `isLocalDevHost`, never from the refused request's `X-Forwarded-Proto`.
+   * comes from `isLocalDevHost`, never from the refused request's `X-Forwarded-Proto`. For a
+   * single-origin deployment only: in a multi-tenant one it would render another tenant's page where
+   * a refusal belongs.
    */
   fallbackHost?: string
 }
@@ -64,10 +66,17 @@ function firstHeaderItem(headers: Headers, name: string): string | undefined {
   return headers.get(name)?.split(',')[0].trim() || undefined
 }
 
-function isAllowedHost(host: string, allowedHosts: Array<string | RegExp>): boolean {
-  return allowedHosts.some((allowed) =>
-    typeof allowed === 'string' ? allowed.toLowerCase() === host.toLowerCase() : allowed.test(host)
-  )
+/** An `allowedHosts` entry: a whole host, a pattern, or a check asked about the host. */
+export type AllowedHost = string | RegExp | ((host: string) => boolean)
+
+function allows(allowed: AllowedHost, host: string): boolean {
+  if (typeof allowed === 'string') return allowed.toLowerCase() === host.toLowerCase()
+  if (typeof allowed === 'function') return allowed(host)
+  return allowed.test(host)
+}
+
+function isAllowedHost(host: string, allowedHosts: AllowedHost[]): boolean {
+  return allowedHosts.some((allowed) => allows(allowed, host))
 }
 
 /**

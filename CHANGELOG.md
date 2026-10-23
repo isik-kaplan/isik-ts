@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-10-24
+
+### Added
+
+- `allowedHosts` on `getRequestOrigin` takes a function entry, `(host) => boolean`, beside strings
+  and RegExps - for hosts known at runtime, such as a multi-tenant app's customer domains. The
+  `AllowedHost` type is exported from `@isikk/core/next/request`.
+
+### Changed
+
+- Docs: `getRequestOrigin` is for URLs to show, not addresses to fetch from. A server fetching its
+  own backend connects to a fixed internal origin and carries the visitor's host and scheme as
+  `X-Forwarded-Host` and `X-Forwarded-Proto`. The docs say when that is safe (an API port reachable
+  only inside the deployment's network) and why `fallbackHost` is for single-origin deployments
+  only.
+
 ## [0.19.0] - 2026-10-23
 
 Security defaults are on, with opt-outs. Four of them change behaviour - see **Breaking** below,

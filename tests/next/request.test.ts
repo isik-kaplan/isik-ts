@@ -153,6 +153,21 @@ describe('getRequestOrigin', () => {
       expect(() => getRequestOrigin(headers, { allowedHosts: ['app.example.com'] })).toThrow('not in allowedHosts')
     })
 
+    it('asks a function entry, alongside the others', () => {
+      const ours = vi.fn((host: string) => host.endsWith('.tenants.test'))
+      const allowedHosts = ['app.example.com', ours]
+      expect(getRequestOrigin(new Headers({ host: 'acme.tenants.test' }), { allowedHosts })).toBe(
+        'https://acme.tenants.test'
+      )
+      expect(ours).toHaveBeenCalledWith('acme.tenants.test')
+      expect(() => getRequestOrigin(new Headers({ host: 'evil.test' }), { allowedHosts })).toThrow(
+        'not in allowedHosts'
+      )
+      expect(getRequestOrigin(new Headers({ host: 'app.example.com' }), { allowedHosts })).toBe(
+        'https://app.example.com'
+      )
+    })
+
     it('rejects everything when empty', () => {
       expect(() => getRequestOrigin(new Headers({ host: 'a.com' }), { allowedHosts: [] })).toThrow(
         'not in allowedHosts'
