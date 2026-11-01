@@ -137,8 +137,15 @@ export interface NameFetchFailuresOptions {
  * https://api.example.com/v0/orders/ (ECONNREFUSED)`, the original kept on `cause`. undici's own
  * `fetch failed` carries only its own frames, so Next's error digest reads every network failure
  * alike without this.
+ *
+ * `baseFetch` defaults to the global fetch, looked up at call time like `createDjangoFetch`'s: a fake
+ * installed after wrapping is the one called, and there is no unbound `fetch` to throw "Illegal
+ * invocation".
  */
-export function nameFetchFailures(baseFetch: typeof fetch, options: NameFetchFailuresOptions = {}): typeof fetch {
+export function nameFetchFailures(
+  baseFetch: typeof fetch = (input, init) => fetch(input, init),
+  options: NameFetchFailuresOptions = {}
+): typeof fetch {
   return async (input, init) => {
     try {
       return await baseFetch(input, init)

@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-11-01
+
+### Changed
+
+- `nameFetchFailures`'s fetch is optional. It defaults to the global `fetch`, looked up at call time
+  as `createDjangoFetch`'s `baseFetch` already was, so wrapping the global no longer needs a
+  `fetch.bind(globalThis)` guard - which also captured whatever `fetch` was at import time and
+  missed a fake installed later. `createDjangoFetch({ ..., baseFetch: nameFetchFailures() })`.
+
 ## [0.20.0] - 2026-10-24
 
 ### Added

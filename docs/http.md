@@ -77,7 +77,7 @@ const api = createClient<paths>({ baseUrl, fetch: createDjangoFetch({ baseUrl, p
 const cookieHeader = (await headers()).get('cookie') ?? undefined
 const serverApi = createClient<paths>({
   baseUrl,
-  fetch: createDjangoFetch({ baseUrl, cookieHeader, baseFetch: nameFetchFailures(fetch) }),
+  fetch: createDjangoFetch({ baseUrl, cookieHeader, baseFetch: nameFetchFailures() }),
 })
 ```
 
@@ -95,7 +95,7 @@ Wraps a fetch so a network failure names the call that failed. undici's own `fet
 ```typescript
 import { nameFetchFailures } from '@isikk/core'
 
-const named = nameFetchFailures(fetch)
+const named = nameFetchFailures() // or nameFetchFailures(someFetch)
 await named('https://api.example.com/v0/orders/?token=x', { method: 'POST' })
 // Error: fetch failed: POST https://api.example.com/v0/orders/ (ECONNREFUSED), the original on `cause`
 ```
@@ -103,3 +103,4 @@ await named('https://api.example.com/v0/orders/?token=x', { method: 'POST' })
 - The query string and fragment are left out by default - a query can carry a token, and the message lands in logs and error digests. `{ includeQuery: true }` keeps them.
 - The code in parentheses is the underlying error's `cause.code`, when there is one.
 - A response, any status, passes through untouched.
+- With no fetch given it wraps the global `fetch`, looked up at call time like `createDjangoFetch`'s default - so no `fetch.bind(globalThis)` guard, and a fake installed later in a test is the one called. To pass options alone: `nameFetchFailures(undefined, { includeQuery: true })`.

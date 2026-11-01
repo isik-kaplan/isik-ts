@@ -87,6 +87,33 @@ describe('nameFetchFailures', () => {
     expect(error.message).toBe('fetch failed: GET https://api.test/a')
     expect(error.cause).toBe(thrown)
   })
+
+  it('wraps the global fetch by default, looked up at call time', async () => {
+    const wrapped = nameFetchFailures()
+    const response = new Response('ok')
+    const global = vi.fn(async () => response)
+    vi.stubGlobal('fetch', global)
+    try {
+      await expect(wrapped('https://api.test/a', { method: 'PUT' })).resolves.toBe(response)
+      expect(global).toHaveBeenCalledWith('https://api.test/a', { method: 'PUT' })
+      vi.stubGlobal('fetch', async () => Promise.reject(refused))
+      await expect(wrapped('https://api.test/a')).rejects.toThrow('fetch failed: GET https://api.test/a (ECONNREFUSED)')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('takes options with the default fetch', async () => {
+    vi.stubGlobal('fetch', async () => Promise.reject(refused))
+    try {
+      const wrapped = nameFetchFailures(undefined, { includeQuery: true })
+      await expect(wrapped('https://api.test/a?page=2')).rejects.toThrow(
+        'fetch failed: GET https://api.test/a?page=2 (ECONNREFUSED)'
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe('createDjangoFetch in the browser', () => {
