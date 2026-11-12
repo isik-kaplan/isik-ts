@@ -27,6 +27,13 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
   `useBrowserSupportsPasskeys`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
+## Offline sync (`@isikk/core/sync`, `@isikk/core/sync/react`)
+
+- [sync.md](sync.md) - `openSyncEngine`, `createIndexedDBAdapter`, `createSQLiteAdapter` + `expoSQLite`,
+  `createMemoryAdapter`, `batchPush` / `restPush`, and the hooks `useLiveQuery`, `useSyncedWrite`,
+  `usePendingWrites`, `useSyncStatus`: a local copy, an offline write queue and a feed, against the
+  isik sync protocol in `protocol/sync/v1/` (peer: `react` for the hooks)
+
 ## Django REST framework (`@isikk/core/drf`)
 
 - [drf.md](drf.md) - `toFormErrors`, `detailOf`, `messagesOf`: readers for DRF's two error shapes

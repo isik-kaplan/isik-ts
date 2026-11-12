@@ -1,6 +1,6 @@
 {
   "name": "@isikk/core",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Everyday TypeScript utilities.",
   "license": "MIT",
   "author": {
@@ -57,6 +57,16 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js",
       "require": "./dist/testing/index.cjs"
+    },
+    "./sync": {
+      "types": "./dist/sync/index.d.ts",
+      "import": "./dist/sync/index.js",
+      "require": "./dist/sync/index.cjs"
+    },
+    "./sync/react": {
+      "types": "./dist/sync/react/index.d.ts",
+      "import": "./dist/sync/react/index.js",
+      "require": "./dist/sync/react/index.cjs"
     },
     "./node": {
       "types": "./dist/node/index.d.ts",
@@ -156,6 +166,7 @@
     "@types/node": "^20.17.9",
     "@types/react": "^19.1.1",
     "@types/react-dom": "^19.3.0",
+    "@types/sql.js": "^1.4.11",
     "@vitest/coverage-v8": "^4.1.10",
     "dom-accessibility-api": "^0.7.1",
     "eslint": "^9.9.1",
@@ -166,6 +177,7 @@
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-promise": "^7.3.0",
     "eslint-plugin-react": "^7.37.5",
+    "fake-indexeddb": "^6.2.8",
     "fast-check": "^4.9.0",
     "husky": "^9.1.7",
     "jsdom": "^26.0.0",
@@ -174,6 +186,7 @@
     "prettier": "^3.3.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sql.js": "^1.13.0",
     "tsup": "^8.3.0",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.3.0",

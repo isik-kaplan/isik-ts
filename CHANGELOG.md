@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-11-12
+
+### Added
+
+- `@isikk/core/sync`: offline sync against the isik sync protocol, version 1 (`protocol/sync/v1/`:
+  the prose, a JSON Schema and 25 fixtures the server runs too).
+  - `openSyncEngine({ adapter, user, document, baseUrl, ... })`: one local table per resource the
+    OpenAPI document's `x-sync` names; `get`, `query` over its declared indexes, `count`; `create`,
+    `update`, `remove` that write locally and queue.
+  - The queue folds writes to one row, holds a write behind the create of a row it names, pushes in
+    batches through `POST /sync/push` (or each through REST with `restPush`, or a project's own
+    `PushStrategy`), keeps a key across every uncertain outcome, rebases a 412 whose fields nobody
+    touched, and keeps the rest as conflicts (`takeTheirs`, `keepMine`) or dead letters (`retryDead`,
+    `discardDead`, `exportDead`) - nothing is dropped silently.
+  - The feed: snapshots staged and swapped in whole (first sync, 410, granted scope, a table whose
+    schema hash changed - that table alone), scope revocation, the server's changes applied under the
+    row's own queued writes.
+  - Triggers (start, `online`, visible or `foreground`, a debounce after a write, an interval), one Web
+    Lock per sync across tabs, `BroadcastChannel` between them, backoff with `Retry-After`,
+    `navigator.storage.persist()`, and `wipe()` that refuses while anything is unsent.
+  - Adapters: `createIndexedDBAdapter`, `createSQLiteAdapter` with `expoSQLite(SQLite)` for
+    expo-sqlite, `createMemoryAdapter`; one contract suite runs against all three.
+  - No batch size is built in: the server advertises its limits, and `batchSize` is the project's.
+- `@isikk/core/sync/react`: `useLiveQuery`, `useSyncedWrite`, `usePendingWrites` (counts and pages),
+  `useSyncStatus`.
+
 ## [0.21.0] - 2026-11-01
 
 ### Changed
