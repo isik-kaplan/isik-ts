@@ -593,17 +593,25 @@ describe('the feed, precisely', () => {
       page([end(`team:${TEAM7}`, null), up('projects', { id: id(5), owner: U1, name: 'q' })], 'c2', true),
       page([end(null, 'projects')], 'c3'),
     ])
-    const engine = await client(server, U1, { fetch })
+    // Each page waits for the reads the last one prompted, so a slow read never sees a later page.
+    let reads: Promise<unknown> = Promise.resolve()
+    const paced: typeof fetch = async (input, init) => {
+      await reads
+      return fetch(input, init)
+    }
+    const engine = await client(server, U1, { fetch: paced })
     const seen: string[][] = []
-    engine.subscribe(async () => {
-      seen.push([
-        ...(await engine.query('tasks')).map((r) => r.id),
-        ...(await engine.query('notes')).map((r) => r.id),
-        ...(await engine.query('projects')).map((r) => r.id),
-      ])
+    engine.subscribe(() => {
+      reads = (async () => {
+        seen.push([
+          ...(await engine.query('tasks')).map((r) => r.id),
+          ...(await engine.query('notes')).map((r) => r.id),
+          ...(await engine.query('projects')).map((r) => r.id),
+        ])
+      })()
     })
     await engine.sync()
-    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(3))
+    await reads
     expect(seen[0]).toEqual([id(1), id(2)])
     expect(seen[1]).toEqual([id(1), id(2), id(3)])
     expect(seen[2]).toEqual([id(1), id(2), id(3), id(4), id(5)])
