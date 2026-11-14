@@ -9,6 +9,7 @@ export default defineConfig({
     'webauthn/index': 'src/webauthn/index.ts',
     'testing/index': 'src/testing/index.ts',
     'node/index': 'src/node/index.ts',
+    'rest/index': 'src/rest/index.ts',
     'sync/index': 'src/sync/index.ts',
     'sync/react/index': 'src/sync/react.ts',
     'next/middleware/index': 'src/next/middleware.ts',

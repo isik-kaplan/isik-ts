@@ -27,6 +27,13 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
   `useBrowserSupportsPasskeys`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
+## REST (`@isikk/core/rest`)
+
+- [rest.md](rest.md) - `createRestClient`, `createStrictRestClient`: a typed client read off any
+  OpenAPI document's `paths` - `rest.resource('/v0/tasks/{id}/')` gives `list`, `create`, `get`,
+  `update`, `replace`, `remove` and actions, only those the document has; the strict one will not
+  send a write without its `Idempotency-Key` (peer: none)
+
 ## Offline sync (`@isikk/core/sync`, `@isikk/core/sync/react`)
 
 - [sync.md](sync.md) - `openSyncEngine`, `createIndexedDBAdapter`, `createSQLiteAdapter` + `expoSQLite`,

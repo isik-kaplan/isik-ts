@@ -1,6 +1,6 @@
 {
   "name": "@isikk/core",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Everyday TypeScript utilities.",
   "license": "MIT",
   "author": {
@@ -57,6 +57,11 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js",
       "require": "./dist/testing/index.cjs"
+    },
+    "./rest": {
+      "types": "./dist/rest/index.d.ts",
+      "import": "./dist/rest/index.js",
+      "require": "./dist/rest/index.cjs"
     },
     "./sync": {
       "types": "./dist/sync/index.d.ts",

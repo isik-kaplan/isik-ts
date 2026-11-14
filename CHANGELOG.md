@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-11-14
+
+### Added
+
+- `@isikk/core/rest`: a typed REST client read off an OpenAPI document's `paths`, with nothing
+  generated and no dependencies.
+  - `rest.resource(detailPath)` gives `list`, `create`, `get`, `update` (PATCH), `replace` (PUT),
+    `remove`, `action(id, method, sub)` and `collectionAction(method, sub)`, typed and present only
+    when the document has them; a nested route binds its parent (`resource(path, { project })`).
+  - `rest.request(method, path, options)` reaches any operation.
+  - Options typed per operation: `path`, `query`, `headers`, `etag` (`If-Match`, required where the
+    document requires it), `idempotencyKey`, `body`, `signal`. Results are openapi-fetch-shaped, for
+    `useAPISubmit`.
+  - `createStrictRestClient` will not send a write without an `Idempotency-Key`: it does not compile,
+    and throws for an untyped caller; `{ none: 'reason' }` opts out on purpose. `createRestClient`
+    mints one, and also takes a bare `false`.
+
 ## [0.22.0] - 2026-11-12
 
 ### Added
