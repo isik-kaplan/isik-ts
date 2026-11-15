@@ -174,6 +174,14 @@ export interface DjangoFetchOptions {
    * CSRF token is read from it, since there is no `document.cookie` on the server.
    */
   cookieHeader?: string
+  /**
+   * Server-side: the id that groups this render with the API calls it makes - the incoming request's
+   * own, as `cookieHeader` is. Sent to a trusted origin as `correlationHeader`, unless the request
+   * names its own. A hint for grouping, never an id the API records a request under.
+   */
+  correlationId?: string
+  /** Default `'X-Request-ID'`, the header isik's `REQUEST_ID_HEADER` reads. */
+  correlationHeader?: string
   /** The fetch to wrap. Default: the global one, looked up at call time. */
   baseFetch?: typeof fetch
   /** Sent with requests to a trusted origin. Default `'include'`. */
@@ -209,6 +217,8 @@ export function createDjangoFetch(options: DjangoFetchOptions): typeof fetch {
     csrfCookieName = 'csrftoken',
     csrfHeaderName = 'X-CSRFToken',
     cookieHeader,
+    correlationId,
+    correlationHeader = 'X-Request-ID',
     baseFetch = (input, init) => fetch(input, init),
     credentials = 'include',
     primeUrl,
@@ -262,6 +272,7 @@ export function createDjangoFetch(options: DjangoFetchOptions): typeof fetch {
     }
     if (token !== undefined) headers.set(csrfHeaderName, token)
     if (cookieHeader !== undefined) headers.set('Cookie', cookieHeader)
+    if (correlationId !== undefined && !headers.has(correlationHeader)) headers.set(correlationHeader, correlationId)
     return baseFetch(input, { ...init, headers, credentials })
   }
 }

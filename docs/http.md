@@ -89,6 +89,12 @@ const serverApi = createClient<paths>({
 ```
 
 - **Only to the API.** The `Cookie` header, the CSRF token and `credentials` go only to `baseUrl`'s origin. A request this fetch makes anywhere else carries none of them. `forwardTo: ['https://auth.example.com']` names other origins instead, and `forwardTo: 'any'` turns the check off. A relative URL is resolved against the page, so on the server, where there is none, it is never trusted.
+- **Correlation.** On the server, `correlationId` is the incoming request's id, read from its
+  headers just as the cookies are: `createDjangoFetch({ baseUrl, cookieHeader, correlationId })`.
+  It's sent to the API as `X-Request-ID` (`correlationHeader` renames it) on every trusted request
+  that doesn't name its own, so a render and the API calls it causes share one id, even when the
+  server reaches Django directly rather than through the edge. It's a hint for grouping: isik
+  records each request under an id it mints itself.
 - **CSRF.** The token is read from the `csrftoken` cookie - `document.cookie` in the browser, `cookieHeader` on the server - and sent as `X-CSRFToken`. Both names are options: `csrfCookieName`, `csrfHeaderName`.
 - **Priming.** With `primeUrl`, an unsafe request (anything but GET, HEAD, OPTIONS, TRACE) made in the browser while the CSRF cookie is missing first GETs `primeUrl` - a view with Django's `ensure_csrf_cookie`. Requests made together share that one GET. A prime that fails lets the request go ahead and be refused as it would have been. It never primes on the server, or on every call.
 - `credentials` defaults to `'include'` on trusted requests; an untrusted one keeps whatever the caller passed.

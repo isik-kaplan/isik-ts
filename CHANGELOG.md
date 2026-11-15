@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `createDjangoFetch({ correlationId })`: on the server, forwards the incoming request's id as
+  `X-Request-ID` (`correlationHeader` renames it) to trusted origins, unless a request names its
+  own. A render and the API calls it causes then share one id, even when the server calls the API
+  directly rather than through the edge.
+
 ## [0.23.0] - 2026-11-15
 
 ### Added

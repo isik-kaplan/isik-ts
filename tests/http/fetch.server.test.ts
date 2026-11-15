@@ -44,6 +44,23 @@ describe('createDjangoFetch on the server', () => {
     expect(headersOf(sent[0].init)).toEqual({})
   })
 
+  it('forwards a correlation id to a trusted origin, under its header, unless the request names one', async () => {
+    const { sent, baseFetch } = recorder()
+    const djangoFetch = createDjangoFetch({ baseUrl: API, baseFetch, correlationId: 'render-1' })
+    await djangoFetch(`${API}/x`)
+    await djangoFetch(`${API}/x`, { headers: { 'X-Request-ID': 'own' } })
+    await djangoFetch('https://elsewhere.test/x')
+    expect(sent.map((call) => headersOf(call.init)['x-request-id'])).toEqual(['render-1', 'own', undefined])
+    const renamed = recorder()
+    await createDjangoFetch({
+      baseUrl: API,
+      baseFetch: renamed.baseFetch,
+      correlationId: 'c',
+      correlationHeader: 'X-Correlation',
+    })(`${API}/x`)
+    expect(headersOf(renamed.sent[0].init)).toEqual({ 'x-correlation': 'c' })
+  })
+
   it('trusts no relative URL, since there is no page to resolve it against', async () => {
     const { sent, baseFetch } = recorder()
     const djangoFetch = createDjangoFetch({ baseUrl: API, baseFetch, cookieHeader: 'sessionid=s' })
