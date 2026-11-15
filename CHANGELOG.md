@@ -29,6 +29,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     compile, and throws for an untyped caller; `{ none: 'reason' }` opts out on purpose.
     `--keys declared` requires one only where the operation declares the header, which is how isik
     marks its exemptions. `--keys minted` mints one.
+  - `onRequest` on the generated client: an event as each request starts and ends, carrying the
+    method, path, URL, idempotency key, etag, status, time and the response's `X-Request-Id`.
+- `@isikk/core/debug`: a developer console that is quiet until asked.
+  - `debug(true | false | pattern)`, persisted as `localStorage.debug` (the `debug` package's
+    convention, `*` and `-` included).
+  - `createDebug(namespace)` loggers with `group(label, fn)` nesting, and a replay buffer for what
+    was held back (`configureDebug({ buffer })`).
+  - `quietConsole()`, a plain function to call above `Sentry.init`. Every call still reaches what
+    wraps the console after it, while only enabled namespaces reach the screen.
+  - `logRequests(logger)` turns a generated client's `onRequest` events into log lines.
 - Dependency: `yaml`, which only the command imports.
 
 ## [0.22.0] - 2026-11-12

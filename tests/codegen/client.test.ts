@@ -267,6 +267,91 @@ describe('a parameter in the shared prefix', () => {
   })
 })
 
+describe('onRequest', () => {
+  it('is told when a request starts and ends, with what a log line wants', async () => {
+    const events: unknown[] = []
+    const fake = server(
+      () => new Response('{}', { status: 409, headers: { 'X-Request-Id': 'r-1', 'Content-Type': 'application/json' } })
+    )
+    let now = 1000
+    vi.spyOn(Date, 'now').mockImplementation(() => (now += 5))
+    const api = createClient({
+      baseUrl: 'https://api.test',
+      fetch: fake.fetch,
+      onRequest: (event) => events.push(event),
+    })
+    await api.tasks.update('t1', {}, { etag: '"v1"', ...key })
+    await api.features.get()
+    expect(events).toEqual([
+      {
+        phase: 'start',
+        id: 1,
+        method: 'patch',
+        path: '/v0/tasks/{id}/',
+        url: 'https://api.test/v0/tasks/t1/',
+        idempotencyKey: 'k',
+        etag: '"v1"',
+      },
+      {
+        phase: 'end',
+        id: 1,
+        method: 'patch',
+        path: '/v0/tasks/{id}/',
+        url: 'https://api.test/v0/tasks/t1/',
+        status: 409,
+        ok: false,
+        ms: 5,
+        requestId: 'r-1',
+      },
+      {
+        phase: 'start',
+        id: 2,
+        method: 'get',
+        path: '/v0/features/',
+        url: 'https://api.test/v0/features/',
+        idempotencyKey: undefined,
+        etag: undefined,
+      },
+      {
+        phase: 'end',
+        id: 2,
+        method: 'get',
+        path: '/v0/features/',
+        url: 'https://api.test/v0/features/',
+        status: 409,
+        ok: false,
+        ms: 5,
+        requestId: 'r-1',
+      },
+    ])
+  })
+
+  it('is told of a request that got no answer, which still throws', async () => {
+    const events: { phase: string }[] = []
+    const failure = new TypeError('Failed to fetch')
+    const api = createClient({
+      fetch: async () => {
+        throw failure
+      },
+      onRequest: (event) => events.push(event),
+    })
+    await expect(api.features.get()).rejects.toBe(failure)
+    expect(events.map((event) => event.phase)).toEqual(['start', 'error'])
+    expect(events[1]).toMatchObject({ id: 1, url: '/v0/features/', error: failure })
+  })
+
+  it('never lets a throwing observer change the request', async () => {
+    const fake = server(() => json({}))
+    const api = createClient({
+      fetch: fake.fetch,
+      onRequest: () => {
+        throw new Error('observer')
+      },
+    })
+    expect(await api.features.get()).toMatchObject({ data: {} })
+  })
+})
+
 describe('the key rules', () => {
   const message = "DELETE /v0/tasks/{id}/ names no idempotencyKey - pass one, or { none: 'the reason' }"
 

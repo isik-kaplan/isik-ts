@@ -61,6 +61,11 @@
       "import": "./dist/testing/index.js",
       "require": "./dist/testing/index.cjs"
     },
+    "./debug": {
+      "types": "./dist/debug/index.d.ts",
+      "import": "./dist/debug/index.js",
+      "require": "./dist/debug/index.cjs"
+    },
     "./codegen": {
       "types": "./dist/codegen/index.d.ts",
       "import": "./dist/codegen/index.js",

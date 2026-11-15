@@ -35,6 +35,12 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
   operation, with an `Idempotency-Key` rule (`every-write`, `declared`, `minted`); `generateClient`
   for programmatic use (dependency: `yaml`, for the command)
 
+## Debug (`@isikk/core/debug`)
+
+- [debug.md](debug.md) - `debug(true | false | 'app:*')` persisted as `localStorage.debug`,
+  `createDebug(namespace)` loggers with groups and a replay buffer, `quietConsole()` to call above
+  `Sentry.init`, and `logRequests(logger)` for a generated client's `onRequest` (peer: none)
+
 ## Offline sync (`@isikk/core/sync`, `@isikk/core/sync/react`)
 
 - [sync.md](sync.md) - `openSyncEngine`, `createIndexedDBAdapter`, `createSQLiteAdapter` + `expoSQLite`,

@@ -95,6 +95,11 @@ export type Result<P extends keyof paths, M extends keyof paths[P]> =
   | { data?: never; error: ErrorOf<P, M>; response: Response }
 /** Sending no Idempotency-Key on purpose, and why - a reason a reader of the call can check. */
 export type NoIdempotencyKey = { none: string }
+/** What onRequest is told: a request starting, and ending with a status - or failing with no answer. */
+export type RequestEvent =
+  | { phase: 'start'; id: number; method: string; path: string; url: string; idempotencyKey?: string; etag?: string }
+  | { phase: 'end'; id: number; method: string; path: string; url: string; status: number; ok: boolean; ms: number; requestId: string | null }
+  | { phase: 'error'; id: number; method: string; path: string; url: string; ms: number; error: unknown }
 
 type Init = {
   path?: Record<string, unknown>
@@ -180,6 +185,8 @@ function clientOptions(rule: KeyRule, prefixParameters: string[]): string {
     '  fetch?: typeof fetch',
     '  /** Sent with every request; a function is called per request - a bearer token that refreshes, say. */',
     '  headers?: HeadersInit | (() => HeadersInit)',
+    '  /** Told when each request starts and ends - logRequests(createDebug(...)) from @isikk/core/debug logs them. */',
+    '  onRequest?: (event: RequestEvent) => void',
     ...(prefixParameters.length === 0
       ? []
       : [
@@ -235,14 +242,28 @@ const CALL = String.raw`
         if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
       }
     }
-    const response = await send(baseUrl + fill(path, PATH_PARAMS) + search(init.query), {
-      method: method.toUpperCase(),
-      headers,
-      body,
-      signal: init.signal,
-    })
+    const url = baseUrl + fill(path, PATH_PARAMS) + search(init.query)
+    const id = (requests += 1)
+    tell({ phase: 'start', id, method, path, url, idempotencyKey: key, etag: init.etag })
+    const started = Date.now()
+    let response: Response
+    try {
+      response = await send(url, { method: method.toUpperCase(), headers, body, signal: init.signal })
+    } catch (error) {
+      tell({ phase: 'error', id, method, path, url, ms: Date.now() - started, error })
+      throw error
+    }
     const payload = await read(response)
+    const requestId = response.headers.get('X-Request-Id')
+    tell({ phase: 'end', id, method, path, url, status: response.status, ok: response.ok, ms: Date.now() - started, requestId })
     return (response.ok ? { data: payload, response } : { error: payload ?? '', response }) as never
+  }
+
+  // An observer that throws never changes what the request does.
+  function tell(event: RequestEvent): void {
+    try {
+      options.onRequest?.(event)
+    } catch {}
   }
 `
 
@@ -274,6 +295,7 @@ export function emit(model: Model, { types, keys, source }: EmitOptions): string
     `export function createClient(options: ClientOptions${model.prefixParameters.length === 0 ? ' = {}' : ''}) {`,
     "  const baseUrl = (options.baseUrl ?? '').replace(/\\/$/, '')",
     '  const send = options.fetch ?? ((input, init) => fetch(input, init))',
+    '  let requests = 0',
     ...(keys === 'minted' ? ['  const generateKey = options.generateKey'] : []),
     keyOf(keys),
     CALL.trimEnd().replace(
