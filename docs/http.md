@@ -62,7 +62,11 @@ copies of the same version still declare two different symbols, and TypeScript t
 `Property '[versioned]' is missing in type ... but required in type 'Versioned'`, which points away
 from the real cause. In a workspace monorepo, `npm install <file>.tgz -w <workspace>` can leave a
 nested `node_modules/@isikk/core` beside the hoisted one. To fix it, delete the nested copy and
-run `npm install` again, or check with `npm ls @isikk/core` that only one copy resolves.
+run `npm install` again, or check with `npm ls @isikk/core` that only one copy resolves. The trap
+also runs in reverse. After swapping a trial's `file:` tarball for a published version, `npm install`
+may keep the old lockfile entry, because the version it sees already satisfies the range, and
+nothing fails until the file is gone. Check that `resolved` for `@isikk/core` in the lockfile is a
+registry URL, not a path.
 
 ## isPreconditionFailed / isPreconditionRequired
 
