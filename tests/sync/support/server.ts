@@ -293,7 +293,13 @@ export class FakeServer {
     flushLive()
     for (const snapshot of [...state.snapshots]) {
       if (!snapshot.begun) {
-        page.push({ op: 'snapshot_begin', scope: snapshot.scope, model: snapshot.model })
+        // Nothing is served before the begin, so what is left is what the snapshot will serve.
+        page.push({
+          op: 'snapshot_begin',
+          scope: snapshot.scope,
+          model: snapshot.model,
+          total: snapshot.remaining.length,
+        })
         snapshot.begun = true
       }
       while (snapshot.remaining.length > 0 && counted < limit) {
@@ -310,10 +316,20 @@ export class FakeServer {
       page.length === 0 &&
       JSON.stringify({ ...state, issued: 0 }) === JSON.stringify({ ...this.cursors.get(cursorId), issued: 0 })
     const cursor = unchanged ? (cursorId as string) : this.issue(state)
-    const body = { changes: page, cursor, has_more: hasMore }
+    const body = { changes: page, cursor, has_more: hasMore, remaining: this.remainingAfter(user, state) }
     const etag = `"feed:${cursorId ?? ''}:${JSON.stringify(body).length}:${cursor}"`
     if (request.headers?.['If-None-Match'] === etag) return { status: 304, headers }
     return { status: 200, headers: { ...headers, ETag: etag }, body }
+  }
+
+  // The live changes still to come: entries past the cursor in the user's scopes, and those an open
+  // snapshot holds back. An upper bound, since collapsing and visibility only shrink it.
+  private remainingAfter(user: string, state: CursorState): number {
+    const scopes = this.scopesOf(user)
+    const ahead = this.log
+      .slice(state.pos)
+      .filter((entry) => entry.kind === 'row' && entry.scopes.some((scope) => scopes.has(scope))).length
+    return ahead + state.snapshots.reduce((sum, snapshot) => sum + snapshot.deferred.length, 0)
   }
 
   private process(

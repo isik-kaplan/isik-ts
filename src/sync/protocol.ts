@@ -24,12 +24,16 @@ export type Change =
   | { op: 'upsert'; model: string; id: string; etag: string; data: Row }
   | { op: 'delete'; model: string; id: string }
   | { op: 'scope_granted' | 'scope_revoked'; scope: string }
-  | { op: 'snapshot_begin' | 'snapshot_end'; scope: string | null; model: string | null }
+  /** `total`: the rows the snapshot will serve, counted when it opens. Optional within v1. */
+  | { op: 'snapshot_begin'; scope: string | null; model: string | null; total?: number }
+  | { op: 'snapshot_end'; scope: string | null; model: string | null }
 
 export interface ChangesPage {
   changes: Change[]
   cursor: string
   has_more: boolean
+  /** An estimate of the live changes past `cursor`, never below the real count; 0 when done. Optional within v1. */
+  remaining?: number
 }
 
 export interface Capabilities {

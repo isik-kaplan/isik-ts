@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Sync protocol v1 gains two optional fields for progress bars, without a new version:
+  - `remaining` on each `/sync/changes` page estimates the live changes still to come. It is never
+    below the real count, and it is `0` when `has_more` is false.
+  - `total` on `snapshot_begin` is the number of rows the snapshot will serve.
+  - `PROTOCOL.md` now states the rule for v1: fields are only added, and only as optional ones. A
+    client ignores a field it doesn't know. Released clients already did.
+
 ## [0.24.0] - 2026-11-15
 
 ### Added
