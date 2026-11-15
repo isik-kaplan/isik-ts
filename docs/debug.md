@@ -82,4 +82,6 @@ the events into log lines, with error statuses as warnings and failures as error
 Cross-origin (the app on `example.com`, the API on `api.example.com`), the browser hides
 `X-Request-Id` from scripts until the API lists it in `Access-Control-Expose-Headers`. Before that,
 `requestId` is always `null`. With django-cors-headers, that's
-`CORS_EXPOSE_HEADERS = ["X-Request-ID"]`. A same-origin API needs nothing.
+`CORS_EXPOSE_HEADERS = ["X-Request-ID"]`. A same-origin API needs nothing. isik (0.55.0 and later)
+echoes the header on every response unless its `RETURN_REQUEST_ID` setting is `False`; with that
+off, `requestId` is `null` too.
