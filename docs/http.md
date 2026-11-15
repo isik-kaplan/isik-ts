@@ -98,7 +98,9 @@ const serverApi = createClient<paths>({
   It's sent to the API as `X-Request-ID` (`correlationHeader` renames it) on every trusted request
   that doesn't name its own, so a render and the API calls it causes share one id, even when the
   server reaches Django directly rather than through the edge. It's a hint for grouping: isik
-  records each request under an id it mints itself.
+  records each request under an id it mints itself. isik accepts a UUID only (hyphenated, or 32 hex
+  digits, as nginx's `$request_id` is) and silently replaces anything else with its own id, so pass
+  the incoming id through unchanged rather than making one up.
 - **CSRF.** The token is read from the `csrftoken` cookie - `document.cookie` in the browser, `cookieHeader` on the server - and sent as `X-CSRFToken`. Both names are options: `csrfCookieName`, `csrfHeaderName`.
 - **Priming.** With `primeUrl`, an unsafe request (anything but GET, HEAD, OPTIONS, TRACE) made in the browser while the CSRF cookie is missing first GETs `primeUrl` - a view with Django's `ensure_csrf_cookie`. Requests made together share that one GET. A prime that fails lets the request go ahead and be refused as it would have been. It never primes on the server, or on every call.
 - `credentials` defaults to `'include'` on trusted requests; an untrusted one keeps whatever the caller passed.
