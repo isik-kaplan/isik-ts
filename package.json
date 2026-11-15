@@ -27,6 +27,9 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "isikk-gen-client": "./dist/codegen/bin.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -58,10 +61,10 @@
       "import": "./dist/testing/index.js",
       "require": "./dist/testing/index.cjs"
     },
-    "./rest": {
-      "types": "./dist/rest/index.d.ts",
-      "import": "./dist/rest/index.js",
-      "require": "./dist/rest/index.cjs"
+    "./codegen": {
+      "types": "./dist/codegen/index.d.ts",
+      "import": "./dist/codegen/index.js",
+      "require": "./dist/codegen/index.cjs"
     },
     "./sync": {
       "types": "./dist/sync/index.d.ts",
@@ -107,7 +110,7 @@
     }
   },
   "scripts": {
-    "build": "tsup --config tsup.config.ts && tsup --config tsup.next-cookies.config.ts && tsup --config tsup.next-config.config.ts",
+    "build": "tsup --config tsup.config.ts && tsup --config tsup.next-cookies.config.ts && tsup --config tsup.next-config.config.ts && tsup --config tsup.codegen-bin.config.ts",
     "dev": "tsup --config tsup.config.ts --watch",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -130,7 +133,8 @@
     ]
   },
   "dependencies": {
-    "date-fns": "^3.6.0"
+    "date-fns": "^3.6.0",
+    "yaml": "^2.9.1"
   },
   "overrides": {
     "eslint-config-standard": {
@@ -188,6 +192,7 @@
     "jsdom": "^26.0.0",
     "lint-staged": "^16.4.0",
     "next": "^16.2.12",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.3.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

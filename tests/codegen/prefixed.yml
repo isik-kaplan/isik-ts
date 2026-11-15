@@ -1,0 +1,53 @@
+openapi: 3.0.3
+info:
+  title: Prefixed
+  version: 0.0.0
+paths:
+  /_allauth/{client}/v1/auth/login:
+    parameters:
+      - name: client
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [app, browser]
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+              required: [email, password]
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                required: [status]
+  /_allauth/{client}/v1/auth/session:
+    parameters:
+      - name: client
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [app, browser]
+    get:
+      responses:
+        '200':
+          description: ''
+    delete:
+      responses:
+        '401':
+          description: ''

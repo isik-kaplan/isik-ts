@@ -27,12 +27,13 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
   `useBrowserSupportsPasskeys`,
   `useFilePaste`, `useFileDragDrop` (peer dep: `react`)
 
-## REST (`@isikk/core/rest`)
+## Codegen (`isikk-gen-client`, `@isikk/core/codegen`)
 
-- [rest.md](rest.md) - `createRestClient`, `createStrictRestClient`: a typed client read off any
-  OpenAPI document's `paths` - `rest.resource('/v0/tasks/{id}/')` gives `list`, `create`, `get`,
-  `update`, `replace`, `remove` and actions, only those the document has; the strict one will not
-  send a write without its `Idempotency-Key` (peer: none)
+- [codegen.md](codegen.md) - `isikk-gen-client schema.yml -o client.ts`: a finished, self-contained
+  API client from an OpenAPI document, beside openapi-typescript's types - resources with `list`,
+  `create`, `get`, `update`, `replace`, `remove` and named actions (`rotateSecret(id, ...)`), typed per
+  operation, with an `Idempotency-Key` rule (`every-write`, `declared`, `minted`); `generateClient`
+  for programmatic use (dependency: `yaml`, for the command)
 
 ## Offline sync (`@isikk/core/sync`, `@isikk/core/sync/react`)
 

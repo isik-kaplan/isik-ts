@@ -9,20 +9,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `@isikk/core/rest`: a typed REST client read off an OpenAPI document's `paths`, with nothing
-  generated and no dependencies.
-  - `rest.resource(detailPath)` gives `list`, `create`, `get`, `update` (PATCH), `replace` (PUT),
-    `remove`, `action(id, method, sub)` and `collectionAction(method, sub)`, typed and present only
-    when the document has them; a nested route binds its parent (`resource(path, { project })`).
-  - `rest.request(method, path, options)` reaches any operation.
-  - Options typed per operation: `path`, `query`, `headers`, `etag` (`If-Match`, required where the
-    document requires it), `idempotencyKey`, `body`, `signal`. Results are openapi-fetch-shaped, for
+- `isikk-gen-client` (and `generateClient` from `@isikk/core/codegen`): generates a finished API
+  client from an OpenAPI document (YAML or JSON), beside openapi-typescript's types. The output is
+  one readable file that imports only those types and needs nothing at runtime but `fetch`.
+  - Resources read from the paths: `list` / `create` on a collection, `get` / `update` / `replace` /
+    `remove` on its detail, actions named after their sub-paths (`rotate-secret/` →
+    `rotateSecret(id, ...)`, several methods → `getMe` / `patchMe`), a nested route's parents first, a
+    path with no detail named by verb, clashes resolved with a warning, a parameter in the shared
+    prefix (allauth's `{client}`) filled once by the client.
+  - Each call's options are typed per operation: `query`, `headers`, `etag` (`If-Match`, required
+    where declared), `idempotencyKey`, `path`, `signal`. Results are openapi-fetch-shaped, for
     `useAPISubmit`.
-  - `createStrictRestClient` will not send a write without an `Idempotency-Key`: it does not compile,
-    and throws for an untyped caller; `{ none: 'reason' }` opts out on purpose. `createRestClient`
-    mints one, and also takes a bare `false`.
-  - `createStrictRestClient<paths, 'declared'>({ requireKey: 'declared' })` requires a key only where
-    the operation declares the header; the default, `'every-write'`, requires one on every write.
+  - `--keys every-write` (default) will not send a write without an `Idempotency-Key`: it does not
+    compile, and throws for an untyped caller; `{ none: 'reason' }` opts out on purpose.
+    `--keys declared` requires one only where the operation declares the header, which is how isik
+    marks its exemptions. `--keys minted` mints one.
+- Dependency: `yaml`, which only the command imports.
 
 ## [0.22.0] - 2026-11-12
 

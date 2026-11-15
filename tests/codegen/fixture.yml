@@ -1,0 +1,584 @@
+openapi: 3.0.3
+info:
+  title: Fixture
+  version: 0.0.0
+paths:
+  /v0/tasks/:
+    get:
+      operationId: tasks_list
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Status'
+          explode: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTaskList'
+    post:
+      operationId: tasks_create
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRequest'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Errors'
+  /v0/tasks/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: tasks_retrieve
+      parameters:
+        - name: expand
+          in: query
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+    patch:
+      operationId: tasks_partial_update
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: X-Request-Source
+          in: header
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTaskRequest'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '412':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Precondition'
+    delete:
+      operationId: tasks_destroy
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: No response body
+  /v0/tasks/{id}/archive/:
+    post:
+      operationId: tasks_archive_create
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+  /v0/tasks/{id}/preferences/:
+    get:
+      operationId: tasks_preferences_retrieve
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+    post:
+      operationId: tasks_preferences_create
+      description: Exempt - sets the state it names, so it declares no Idempotency-Key.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Preferences'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+  /v0/tasks/{id}/stats/:
+    get:
+      operationId: tasks_stats_retrieve
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+  /v0/tasks/stats/:
+    get:
+      operationId: tasks_stats_all
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+  /v0/tasks/list/:
+    get:
+      operationId: tasks_list_action
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /v0/users/{id}/:
+    get:
+      operationId: users_retrieve
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /v0/users/me/:
+    get:
+      operationId: users_me_retrieve
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    patch:
+      operationId: users_me_partial_update
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /v0/projects/{project}/members/:
+    get:
+      operationId: projects_members_list
+      parameters:
+        - name: project
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+  /v0/projects/{project}/members/{user}/:
+    delete:
+      operationId: projects_members_destroy
+      parameters:
+        - name: project
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: No response body
+  /v0/features/:
+    get:
+      operationId: features_retrieve
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: boolean
+  /v0/account/email:
+    get:
+      operationId: account_email_list
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Email'
+    post:
+      operationId: account_email_add
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Email'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Email'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllauthErrors'
+    delete:
+      operationId: account_email_remove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Email'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Email'
+  /v0/things:
+    get:
+      operationId: things_list
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /v0/things/{slug}:
+    get:
+      operationId: things_retrieve
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Tenant
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Trace
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                required: [slug]
+        default:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                required: [message]
+  /v0/things/{slug}/thumbnail:
+    put:
+      operationId: things_thumbnail_update
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '204':
+          description: No response body
+  /v0/teams/{team}/{kind}-{period}-report/:
+    get:
+      operationId: teams_report_retrieve
+      parameters:
+        - name: team
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [weekly, monthly]
+        - name: period
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: ''
+          content:
+            text/csv:
+              schema:
+                type: string
+components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+  schemas:
+    Status:
+      type: string
+      enum: [open, done]
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+      required: [id, title, status]
+    TaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+      required: [title]
+    PatchedTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+    PaginatedTaskList:
+      type: object
+      properties:
+        count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+      required: [count, results]
+    Errors:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+    Detail:
+      type: object
+      properties:
+        detail:
+          type: string
+      required: [detail]
+    Precondition:
+      type: object
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+        current:
+          $ref: '#/components/schemas/Task'
+      required: [detail, code, current]
+    Preferences:
+      type: object
+      properties:
+        muted:
+          type: boolean
+      required: [muted]
+    Stats:
+      type: object
+      properties:
+        open:
+          type: integer
+      required: [open]
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+      required: [id, name]
+    PatchedUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+    Email:
+      type: object
+      properties:
+        email:
+          type: string
+      required: [email]
+    AllauthErrors:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+            required: [code]
+      required: [errors]

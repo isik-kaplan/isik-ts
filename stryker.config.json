@@ -17,5 +17,6 @@
     "fileName": "reports/mutation/index.html"
   },
   "tempDirName": ".stryker-tmp",
-  "cleanTempDir": true
+  "cleanTempDir": true,
+  "disableTypeChecks": "src/**/*.{ts,tsx}"
 }

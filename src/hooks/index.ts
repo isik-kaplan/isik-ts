@@ -13,7 +13,6 @@ import {
   isPreconditionRequired,
   retryAfterOf,
 } from '../http'
-import { randomUUID } from '../http/random'
 import { browserSupportsPasskeys } from '../webauthn'
 
 export function useElementAttributes<T extends HTMLElement, K extends keyof T>(attributeKeys: K[]) {
@@ -464,6 +463,27 @@ export type IdempotencyKeyOptions = {
 }
 
 /**
+ * `randomUUID` exists only in a secure context, so a dev stack on plain http behind a hostname has
+ * none. `getRandomValues` exists everywhere `crypto` does, and 16 of its bytes are a v4 UUID once the
+ * version and variant bits are set.
+ */
+function randomUUID(): string {
+  const crypto = globalThis.crypto as Partial<Crypto> | undefined
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
+  if (typeof crypto?.getRandomValues !== 'function') {
+    throw new TypeError(
+      'useIdempotencyKey: this runtime has neither crypto.randomUUID nor crypto.getRandomValues - pass ' +
+        '`generateKey`, or install a polyfill such as react-native-get-random-values'
+    )
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
+}
+
+/**
  * An `Idempotency-Key` that belongs to the attempt, not the call.
  *
  * A key minted per call protects nothing: a person who presses submit again after a lost response
@@ -483,7 +503,7 @@ export type IdempotencyKeyOptions = {
  *
  * Placing the header is the caller's, since every client places it differently.
  */
-export function useIdempotencyKey({ generateKey = () => randomUUID('useIdempotencyKey') }: IdempotencyKeyOptions = {}) {
+export function useIdempotencyKey({ generateKey = randomUUID }: IdempotencyKeyOptions = {}) {
   const attempt = useRef<{ snapshot: string | undefined; key: string } | null>(null)
 
   // `payload` is optional for a write with no body, which still wants one key per attempt.
