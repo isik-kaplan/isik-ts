@@ -161,7 +161,7 @@ export function createClient(options: ClientOptions) {
   return {
     login: {
       /** POST /_allauth/{client}/v1/auth/login */
-      post: (
+      create: (
         body: BodyOf<"/_allauth/{client}/v1/auth/login", "post">,
         options?: { headers?: Record<string, string>; idempotencyKey?: string | NoIdempotencyKey | false; signal?: AbortSignal },
       ): Promise<Result<"/_allauth/{client}/v1/auth/login", "post">> =>
@@ -174,7 +174,7 @@ export function createClient(options: ClientOptions) {
       ): Promise<Result<"/_allauth/{client}/v1/auth/session", "get">> =>
         call("get", "/_allauth/{client}/v1/auth/session", { ...options }, "none"),
       /** DELETE /_allauth/{client}/v1/auth/session */
-      delete: (
+      remove: (
         options?: { headers?: Record<string, string>; idempotencyKey?: string | NoIdempotencyKey | false; signal?: AbortSignal },
       ): Promise<Result<"/_allauth/{client}/v1/auth/session", "delete">> =>
         call("delete", "/_allauth/{client}/v1/auth/session", { ...options }, "mint"),

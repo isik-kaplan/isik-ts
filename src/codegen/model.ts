@@ -32,6 +32,8 @@ export interface Operation {
   /** Whether the operation declares an `Idempotency-Key` header, under any case. */
   declaresKey: { name: string } | null
   body: boolean
+  /** Whether a 2xx answers a list: an array, or a page whose `results` is one. */
+  list: boolean
 }
 
 export type Kind = 'collection' | 'detail' | 'detailAction' | 'collectionAction'
@@ -146,7 +148,46 @@ function operationOf(document: Json, path: string, method: Method, item: Json, r
     etag: etag === undefined ? null : { name: etag.name, required: etag.required },
     declaresKey: key === undefined ? null : { name: key.name },
     body: raw.requestBody !== undefined,
+    list: answersList(document, raw.responses),
   }
+}
+
+function answersList(document: Json, responses: unknown): boolean {
+  const schemas = Object.entries(isObject(responses) ? responses : {})
+    .filter(([status]) => status.startsWith('2'))
+    .flatMap(([, response]) => {
+      const content = (resolve(document, response) as Json).content
+      return Object.values(isObject(content) ? content : {}).map((media) => resolve(document, (media as Json).schema))
+    })
+  return schemas.some((schema) => {
+    if (!isObject(schema)) return false
+    if (schema.type === 'array') return true
+    const results = isObject(schema.properties) ? resolve(document, schema.properties.results) : undefined
+    return isObject(results) && results.type === 'array'
+  })
+}
+
+const IRREGULAR: Record<string, string> = { person: 'people', child: 'children', man: 'men', woman: 'women' }
+
+/**
+ * The plural of a camelCased name's last word: `history` is `histories`, `delegatableScope`
+ * `delegatableScopes`, `status` `statuses`. A word that already reads as plural - `scopes`,
+ * `permissions`, `people` - is left alone.
+ */
+export function plural(name: string): string {
+  const cut = Math.max(0, name.search(/[A-Z0-9][^A-Z0-9]*$/))
+  const head = name.slice(0, cut)
+  const word = name.slice(cut)
+  const lower = word.toLowerCase()
+  const keep = (end: string) => word[0] + end.slice(1)
+  const irregular = IRREGULAR[lower] as string | undefined
+  if (irregular !== undefined) return head + keep(irregular)
+  if (Object.values(IRREGULAR).includes(lower)) return name
+  if (/[^s]s$/.test(lower) && !/(us|is)$/.test(lower)) return name
+  if (/[^aeiou]y$/.test(lower)) return head + word.slice(0, -1) + 'ies'
+  if (/is$/.test(lower)) return head + word.slice(0, -2) + 'es'
+  if (/(s|x|z|ch|sh)$/.test(lower)) return head + word + 'es'
+  return head + word + 's'
 }
 
 /** Whether a call to `operation` must name its key, may, or gets one minted. Safe methods take none. */
@@ -159,6 +200,8 @@ export function keyModeOf(operation: Operation, rule: KeyRule): 'require' | 'opt
 
 const COLLECTION_NAMES: Partial<Record<Method, string>> = { get: 'list', post: 'create' }
 const DETAIL_NAMES: Partial<Record<Method, string>> = { get: 'get', patch: 'update', put: 'replace', delete: 'remove' }
+/** A resource's own words for its writes, used wherever a name says what a method does. */
+const WRITES: Partial<Record<Method, string>> = { post: 'create', patch: 'update', put: 'replace', delete: 'remove' }
 
 /**
  * The resources a document's paths make:
@@ -166,13 +209,16 @@ const DETAIL_NAMES: Partial<Record<Method, string>> = { get: 'get', patch: 'upda
  * - a path under a detail is that detail's action, and one under a collection its collection action;
  * - any other path is a resource of its own, whose methods are named for their HTTP verbs.
  */
-export function modelOf(document: unknown, stripPrefix?: string): Model {
+export function modelOf(document: unknown, stripPrefix?: string, include?: string, plurals = true): Model {
   if (!isObject(document) || !isObject(document.paths)) {
     throw new TypeError('codegen: the document has no `paths` - is it an OpenAPI document?')
   }
   const root = document
   // Stryker disable next-line EqualityOperator: two keys of one object are never equal
-  const paths = Object.keys(document.paths).sort((a, b) => a.length - b.length || (a < b ? -1 : 1))
+  const shorterFirst = (a: string, b: string) => a.length - b.length || (a < b ? -1 : 1)
+  const paths = Object.keys(document.paths)
+    .filter((path) => include === undefined || path.startsWith(include))
+    .sort(shorterFirst)
   const operations = new Map<string, Operation[]>()
   for (const path of paths) {
     const item = resolve(root, (document.paths as Json)[path]) as Json
@@ -250,16 +296,17 @@ export function modelOf(document: unknown, stripPrefix?: string): Model {
       const resource = resources.get(place.collection) as Resource
       const found = operations.get(path) as Operation[]
       for (const operation of found) {
-        const wanted = nameOf(place, operation, found.length, hasDetail(place.collection))
+        const wanted = nameOf(place, operation, found.length, hasDetail(place.collection), plurals)
         const taken = (candidate: string) => resource.members.some((member) => member.name === candidate)
         let name = wanted
         if (taken(name)) {
-          const fallbacks = [
-            camel([operation.method, ...place.tail]),
-            // Stryker disable next-line ConditionalExpression,StringLiteral: a detail action gets here only when earlier members hold both its name and its verb-prefixed one, which no route tried does
-            camel([kind === 'collectionAction' ? 'collection' : 'detail', ...place.tail, operation.method]),
-          ]
-          name = fallbacks.find((candidate) => !taken(candidate)) ?? `${wanted}${resource.members.length}`
+          // Only actions can clash. A collection action says it is one - `history` beside one user's is
+          // `collectionHistory` - and a detail action takes its verb, as `getList` beside `list`.
+          const fallback =
+            kind === 'collectionAction'
+              ? camel(['collection', ...place.tail])
+              : camel([operation.method, ...place.tail])
+          name = taken(fallback) ? `${wanted}${resource.members.length}` : fallback
           warnings.push(
             `${operation.method.toUpperCase()} ${path}: "${wanted}" is taken in ${resource.name}, so it is "${name}"`
           )
@@ -276,11 +323,53 @@ export function modelOf(document: unknown, stripPrefix?: string): Model {
   }
 }
 
-function nameOf(place: { kind: Kind; tail: string[] }, operation: Operation, methods: number, detail: boolean): string {
+/**
+ * The project's own names: `{ 'users.collectionHistory': 'histories', users: 'people' }`. A key is a
+ * generated name - a resource, or a resource and its member - and naming one that does not exist, or
+ * renaming onto a name already taken, is an error rather than a rename that quietly did nothing.
+ */
+export function renamed(model: Model, renames: Record<string, string>): Model {
+  const resources = model.resources.map((resource) => ({ ...resource, members: [...resource.members] }))
+  const entries = Object.entries(renames)
+  const find = (name: string) => resources.find((resource) => resource.name === name)
+  for (const [from, to] of entries.filter(([key]) => key.includes('.'))) {
+    const owner = from.slice(0, from.indexOf('.'))
+    const member = from.slice(owner.length + 1)
+    const resource = find(owner)
+    if (resource === undefined) throw new TypeError(`codegen: rename ${from}: there is no such member`)
+    const index = resource.members.findIndex((candidate) => candidate.name === member)
+    if (index < 0) throw new TypeError(`codegen: rename ${from}: there is no such member`)
+    if (resource.members.some((candidate) => candidate.name === to)) {
+      throw new TypeError(`codegen: rename ${from}: ${owner} already has a ${to}`)
+    }
+    resource.members[index] = { ...resource.members[index], name: to }
+  }
+  for (const [from, to] of entries.filter(([key]) => !key.includes('.'))) {
+    const resource = find(from)
+    if (resource === undefined) throw new TypeError(`codegen: rename ${from}: there is no such resource`)
+    if (find(to) !== undefined) throw new TypeError(`codegen: rename ${from}: there is already a ${to}`)
+    resource.name = to
+  }
+  return { ...model, resources }
+}
+
+function nameOf(
+  place: { kind: Kind; tail: string[] },
+  operation: Operation,
+  methods: number,
+  detail: boolean,
+  plurals: boolean
+): string {
   const { method } = operation
-  if (place.kind === 'collection') return (detail ? COLLECTION_NAMES[method] : undefined) ?? method
+  if (plurals && place.kind === 'collectionAction' && method === 'get' && operation.list) {
+    return plural(nameOf(place, operation, methods, detail, false))
+  }
+  if (place.kind === 'collection') return (detail ? COLLECTION_NAMES[method] : WRITES[method]) ?? method
   if (place.kind === 'detail') return DETAIL_NAMES[method] ?? `${method}One`
-  return methods === 1 ? camel(place.tail) : `${method}${pascal(place.tail)}`
+  // A sub-path with several methods: the read has the bare name, the writes say what they do -
+  // `me()` and `updateMe(...)`, as `get` and `update` on the resource itself.
+  if (methods === 1 || method === 'get') return camel(place.tail)
+  return `${WRITES[method] ?? method}${pascal(place.tail)}`
 }
 
 /** `v0` is `/v0/`: a prefix starts and ends with a slash, so it ends on a segment boundary. */

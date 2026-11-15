@@ -140,13 +140,13 @@ export function createClient(options: ClientOptions = {}) {
       ): Promise<Result<"/v0/account/email", "get">> =>
         call("get", "/v0/account/email", { ...options }, "none"),
       /** POST /v0/account/email */
-      post: (
+      create: (
         body: BodyOf<"/v0/account/email", "post">,
         options: { headers?: Record<string, string>; idempotencyKey: string | NoIdempotencyKey; signal?: AbortSignal },
       ): Promise<Result<"/v0/account/email", "post">> =>
         call("post", "/v0/account/email", { ...options, body }, "require"),
       /** DELETE /v0/account/email */
-      delete: (
+      remove: (
         body: BodyOf<"/v0/account/email", "delete">,
         options: { headers?: Record<string, string>; idempotencyKey: string | NoIdempotencyKey; signal?: AbortSignal },
       ): Promise<Result<"/v0/account/email", "delete">> =>
@@ -218,25 +218,25 @@ export function createClient(options: ClientOptions = {}) {
       ): Promise<Result<"/v0/tasks/{id}/archive/", "post">> =>
         call("post", "/v0/tasks/{id}/archive/", { ...options, path: { id } }, "require"),
       /** GET /v0/tasks/{id}/preferences/ */
-      getPreferences: (
+      preferences: (
         id: PathOf<"/v0/tasks/{id}/preferences/", "get">["id"],
         options?: { headers?: Record<string, string>; signal?: AbortSignal },
       ): Promise<Result<"/v0/tasks/{id}/preferences/", "get">> =>
         call("get", "/v0/tasks/{id}/preferences/", { ...options, path: { id } }, "none"),
       /** POST /v0/tasks/{id}/preferences/ */
-      postPreferences: (
+      createPreferences: (
         id: PathOf<"/v0/tasks/{id}/preferences/", "post">["id"],
         body: BodyOf<"/v0/tasks/{id}/preferences/", "post">,
         options: { headers?: Record<string, string>; idempotencyKey: string | NoIdempotencyKey; signal?: AbortSignal },
       ): Promise<Result<"/v0/tasks/{id}/preferences/", "post">> =>
         call("post", "/v0/tasks/{id}/preferences/", { ...options, path: { id }, body }, "require"),
       /** GET /v0/tasks/list/ */
-      getList: (
+      lists: (
         options?: { headers?: Record<string, string>; signal?: AbortSignal },
       ): Promise<Result<"/v0/tasks/list/", "get">> =>
         call("get", "/v0/tasks/list/", { ...options }, "none"),
       /** GET /v0/tasks/stats/ */
-      getStats: (
+      collectionStats: (
         options?: { headers?: Record<string, string>; signal?: AbortSignal },
       ): Promise<Result<"/v0/tasks/stats/", "get">> =>
         call("get", "/v0/tasks/stats/", { ...options }, "none"),
@@ -276,17 +276,28 @@ export function createClient(options: ClientOptions = {}) {
         options?: { headers?: Record<string, string>; signal?: AbortSignal },
       ): Promise<Result<"/v0/users/{id}/", "get">> =>
         call("get", "/v0/users/{id}/", { ...options, path: { id } }, "none"),
+      /** GET /v0/users/{id}/history/ */
+      history: (
+        id: PathOf<"/v0/users/{id}/history/", "get">["id"],
+        options?: { headers?: Record<string, string>; signal?: AbortSignal },
+      ): Promise<Result<"/v0/users/{id}/history/", "get">> =>
+        call("get", "/v0/users/{id}/history/", { ...options, path: { id } }, "none"),
       /** GET /v0/users/me/ */
-      getMe: (
+      me: (
         options?: { headers?: Record<string, string>; signal?: AbortSignal },
       ): Promise<Result<"/v0/users/me/", "get">> =>
         call("get", "/v0/users/me/", { ...options }, "none"),
       /** PATCH /v0/users/me/ */
-      patchMe: (
+      updateMe: (
         body: BodyOf<"/v0/users/me/", "patch">,
         options: { headers?: Record<string, string>; idempotencyKey: string | NoIdempotencyKey; signal?: AbortSignal },
       ): Promise<Result<"/v0/users/me/", "patch">> =>
         call("patch", "/v0/users/me/", { ...options, body }, "require"),
+      /** GET /v0/users/history/ */
+      histories: (
+        options?: { query?: QueryOf<"/v0/users/history/", "get">; headers?: Record<string, string>; signal?: AbortSignal },
+      ): Promise<Result<"/v0/users/history/", "get">> =>
+        call("get", "/v0/users/history/", { ...options }, "none"),
     },
   }
 }

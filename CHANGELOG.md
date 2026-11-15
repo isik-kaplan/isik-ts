@@ -14,9 +14,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   one readable file that imports only those types and needs nothing at runtime but `fetch`.
   - Resources read from the paths: `list` / `create` on a collection, `get` / `update` / `replace` /
     `remove` on its detail, actions named after their sub-paths (`rotate-secret/` →
-    `rotateSecret(id, ...)`, several methods → `getMe` / `patchMe`), a nested route's parents first, a
-    path with no detail named by verb, clashes resolved with a warning, a parameter in the shared
-    prefix (allauth's `{client}`) filled once by the client.
+    `rotateSecret(id, ...)`), a nested route's parents first, a path with no detail named in the same
+    words, clashes resolved with a warning, a parameter in the shared prefix (allauth's `{client}`)
+    filled once by the client.
+  - A collection action that GETs a list is named in the plural (`users/history/` → `histories()`
+    beside `history(id)`; `--no-plurals` to keep it singular). A sub-path with several methods names
+    its read bare and its writes in the resource's words (`me()`, `updateMe(...)`).
+  - `--rename users.collectionStats=allStats` (or `users=people`) for the project's own names, and
+    `--include /v0/browser/` for one client of several a document serves.
   - Each call's options are typed per operation: `query`, `headers`, `etag` (`If-Match`, required
     where declared), `idempotencyKey`, `path`, `signal`. Results are openapi-fetch-shaped, for
     `useAPISubmit`.

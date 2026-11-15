@@ -26,18 +26,23 @@ await api.oauthApplications.list({ query: { page: 2 } })
 await api.oauthApplications.rotateSecret(id, { revoke_tokens: true }, { idempotencyKey })
 await api.oauthApplications.delegatableScopes()
 await api.reviews.approve(id, { approved_scopes }, { etag, idempotencyKey })
-await api.users.history(id, { query: { page: 2 } })
-await api.users.getMe()
+await api.users.history(id)
+await api.users.histories({ query: { page: 2 } })
+await api.users.me()
+await api.users.updateMe(body, { etag, idempotencyKey })
 ```
 
 ## Options
 
-| option                    | default           |                                                         |
-| ------------------------- | ----------------- | ------------------------------------------------------- |
-| `-o, --out <file>`        | required          | where to write the client                               |
-| `--types <path>`          | `./schema`        | the openapi-typescript output, as the client imports it |
-| `--keys <rule>`           | `every-write`     | which writes must name their `Idempotency-Key`, below   |
-| `--strip-prefix <prefix>` | the shared prefix | taken off every path before its resources are read      |
+| option                    | default           |                                                                              |
+| ------------------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `-o, --out <file>`        | required          | where to write the client                                                    |
+| `--types <path>`          | `./schema`        | the openapi-typescript output, as the client imports it                      |
+| `--keys <rule>`           | `every-write`     | which writes must name their `Idempotency-Key`, below                        |
+| `--strip-prefix <prefix>` | the shared prefix | taken off every path before its resources are read                           |
+| `--include <prefix>`      | every path        | only the paths that start with this: one client of several a document serves |
+| `--rename <from>=<to>`    |                   | the project's own name for a generated one, repeatable (below)               |
+| `--no-plurals`            | plurals on        | keep collection actions that GET a list singular                             |
 
 The input is YAML or JSON (`.json`). Name clashes, and what each name became instead, are printed
 as warnings.
@@ -50,14 +55,26 @@ Resources are read from what follows the prefix every path shares (`/v0/`, `/acc
   `create` on the collection, `get`, `update` (PATCH), `replace` (PUT) and `remove` on the detail.
 - **An action** is a path under either one. It's named after its sub-path in camelCase:
   `rotate-secret/` → `rotateSecret(id, ...)`, and `delegatable-scopes/` → `delegatableScopes()`.
-  A sub-path with several methods gets one per verb: `getMe` and `patchMe`.
+- **A collection action that GETs a list**, whether an array or a page of `results`, is named in
+  the plural: `users/history/` → `histories()`, beside one user's `history(id)`. A name that's
+  already plural stays as it is (`permissions()`, `scopes()`). Only the last word changes
+  (`delegatableScope` → `delegatableScopes`). `--no-plurals` turns this off.
+- **A sub-path with several methods** gives the read the bare name and names the writes in the
+  resource's own words: `users/me/` → `me()`, `updateMe(...)`, `replaceMe(...)`, `createMe(...)`,
+  `removeMe(...)`.
 - **A nested route** (`/projects/{project}/members/{user}/`) takes its parent first:
   `projectsMembers.remove(project, user, ...)`.
-- **A path with no detail** (`/features/`, allauth's `/account/email`) is a resource whose methods
-  are named for their verbs: `accountEmail.get()`, `.post(body, ...)`, `.delete(body, ...)`.
-- **A clash** (a `list/` action beside `list`, or a detail and a collection action with one name)
-  falls back to the verb-prefixed name (`getList`), and then to one naming the side
-  (`collectionStats`). The generator warns either way.
+- **A path with no detail** (`/features/`, allauth's `/account/email`) is a resource with the same
+  words: `accountEmail.get()`, `.create(body, ...)`, `.update(...)`, `.replace(...)`,
+  `.remove(body, ...)`.
+- **A clash** gets another name, and the generator warns. A collection action says it's one
+  (`stats/` beside one task's `stats(id)` → `collectionStats()`); a detail action takes its verb
+  (`getGet`). If that's taken too, it gets a number.
+- **Your own names:** `--rename users.collectionStats=allStats` renames a member, and
+  `--rename users=people` a resource. A name that doesn't exist, or renaming onto a name that's
+  already taken, is an error, not a rename that silently does nothing.
+- **One client of several:** a document that serves allauth's browser and app clients under
+  `/v0/browser/` and `/v0/app/` generates each with `--include /v0/browser/`.
 - **A parameter in the shared prefix** (allauth's `/_allauth/{client}/v1/`) is filled once:
   `createClient({ pathParams: { client: 'browser' } })`.
 - A path parameter that's part of a segment (`{kind}-report/`) is passed in `options.path`.

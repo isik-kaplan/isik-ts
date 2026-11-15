@@ -80,16 +80,18 @@ describe('a generated resource', () => {
     expect(sent[2]).toMatchObject({ method: 'DELETE', url: 'https://api.test/v0/tasks/t1/' })
   })
 
-  it('names its actions: one method bare, several by verb, a clash by verb too', async () => {
+  it('names its actions: one method bare, several by verb, a list on the collection in the plural, a clash by its side', async () => {
     const { api, sent } = client()
     await api.tasks.archive('t1', key)
-    await api.tasks.getPreferences('t1')
-    await api.tasks.postPreferences('t1', { muted: true }, key)
+    await api.tasks.preferences('t1')
+    await api.tasks.createPreferences('t1', { muted: true }, key)
     await api.tasks.stats('t1')
-    await api.tasks.getStats()
-    await api.tasks.getList()
-    await api.users.getMe()
-    await api.users.patchMe({ name: 'n' }, key)
+    await api.tasks.collectionStats()
+    await api.tasks.lists()
+    await api.users.history(4)
+    await api.users.histories({ query: { page: 2 } })
+    await api.users.me()
+    await api.users.updateMe({ name: 'n' }, key)
     expect(sent.map((s) => `${s.method} ${s.url.replace('https://api.test', '')}`)).toEqual([
       'POST /v0/tasks/t1/archive/',
       'GET /v0/tasks/t1/preferences/',
@@ -97,6 +99,8 @@ describe('a generated resource', () => {
       'GET /v0/tasks/t1/stats/',
       'GET /v0/tasks/stats/',
       'GET /v0/tasks/list/',
+      'GET /v0/users/4/history/',
+      'GET /v0/users/history/?page=2',
       'GET /v0/users/me/',
       'PATCH /v0/users/me/',
     ])
@@ -121,8 +125,8 @@ describe('a generated resource', () => {
   it('names the methods of a path with no detail by their verbs, slash or not', async () => {
     const { api, sent } = client(() => json([]))
     await api.accountEmail.get()
-    await api.accountEmail.post({ email: 'a@b.c' }, key)
-    await api.accountEmail.delete({ email: 'a@b.c' }, key)
+    await api.accountEmail.create({ email: 'a@b.c' }, key)
+    await api.accountEmail.remove({ email: 'a@b.c' }, key)
     await api.features.get()
     expect(sent.map((s) => `${s.method} ${s.url}`)).toEqual([
       'GET https://api.test/v0/account/email',
@@ -201,13 +205,13 @@ describe('the generated runtime', () => {
       new Uint8Array(1),
       new ReadableStream(),
     ]
-    for (const body of bodies) await api.accountEmail.post(body as never, key)
+    for (const body of bodies) await api.accountEmail.create(body as never, key)
     expect(sent.map((s) => s.body)).toEqual(bodies)
     // The answer is built first: this runtime's own Response needs ReadableStream.
     const answer = json([])
     const bare = client(() => answer)
     vi.stubGlobal('ReadableStream', undefined)
-    const sending = bare.api.accountEmail.post({ email: 'a' }, key)
+    const sending = bare.api.accountEmail.create({ email: 'a' }, key)
     vi.unstubAllGlobals()
     await sending
     expect(bare.sent[0].body).toBe('{"email":"a"}')
@@ -215,7 +219,10 @@ describe('the generated runtime', () => {
 
   it("keeps a caller's own Content-Type", async () => {
     const { api, sent } = client()
-    await api.accountEmail.post({ email: 'a' }, { ...key, headers: { 'Content-Type': 'application/merge-patch+json' } })
+    await api.accountEmail.create(
+      { email: 'a' },
+      { ...key, headers: { 'Content-Type': 'application/merge-patch+json' } }
+    )
     expect(sent[0].headers['content-type']).toBe('application/merge-patch+json')
   })
 
@@ -247,9 +254,9 @@ describe('a parameter in the shared prefix', () => {
   it('is filled from the client, and a call can still name its own', async () => {
     const fake = server()
     const api = prefixedClient({ fetch: fake.fetch, pathParams: { client: 'browser' }, generateKey: null })
-    await api.login.post({ email: 'a', password: 'b' })
+    await api.login.create({ email: 'a', password: 'b' })
     await api.session.get()
-    await api.session.delete()
+    await api.session.remove()
     expect(fake.sent.map((s) => `${s.method} ${s.url}`)).toEqual([
       'POST /_allauth/browser/v1/auth/login',
       'GET /_allauth/browser/v1/auth/session',
@@ -274,11 +281,11 @@ describe('the key rules', () => {
   it('declared: lets an undeclared write go without a key, and holds a declared one to it', async () => {
     const fake = server()
     const api = declaredClient({ fetch: fake.fetch })
-    await api.tasks.postPreferences('t1', { muted: true })
-    await api.accountEmail.post({ email: 'a' }, { idempotencyKey: 'k' })
+    await api.tasks.createPreferences('t1', { muted: true })
+    await api.accountEmail.create({ email: 'a' }, { idempotencyKey: 'k' })
     expect(fake.sent.map((s) => s.headers['idempotency-key'])).toEqual([undefined, 'k'])
     await expect(api.tasks.remove('t1', { etag: '*' } as never)).rejects.toThrow(message)
-    await expect(api.accountEmail.post({ email: 'a' }, { idempotencyKey: false } as never)).rejects.toThrow(
+    await expect(api.accountEmail.create({ email: 'a' }, { idempotencyKey: false } as never)).rejects.toThrow(
       'names no idempotencyKey'
     )
   })
@@ -363,7 +370,7 @@ describe('the generated types', () => {
       // @ts-expect-error - declared: the create declares the header, so its key is required
       () => declared.tasks.create({ title: 'x' }),
       // @ts-expect-error - declared: still no bare false
-      () => declared.tasks.postPreferences('t1', { muted: true }, { idempotencyKey: false }),
+      () => declared.tasks.createPreferences('t1', { muted: true }, { idempotencyKey: false }),
       // @ts-expect-error - minted: a GET takes no key at all
       () => minted.tasks.list({ idempotencyKey: 'k' }),
     ]

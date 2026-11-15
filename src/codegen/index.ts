@@ -1,5 +1,5 @@
 import { emit } from './emit'
-import { type KeyRule, modelOf } from './model'
+import { type KeyRule, modelOf, renamed } from './model'
 
 export type { KeyRule } from './model'
 
@@ -13,8 +13,20 @@ export interface GenerateOptions {
    * - `'minted'`: none; a write that names none gets a fresh key.
    */
   keys?: KeyRule
-  /** Taken off the front of each path before naming its resource. Default: what every resource shares. */
+  /** Taken off the front of each path before naming its resource. Default: what every path shares. */
   stripPrefix?: string
+  /**
+   * Plural names for the collection actions that GET a list - `users/history/` is `histories()` beside
+   * one user's `history(id)`. Default `true`.
+   */
+  plurals?: boolean
+  /** Only the paths that start with this: one client of several a document serves (`/v0/browser/`). */
+  include?: string
+  /**
+   * The project's own names for what the generator named: `{ 'users.collectionHistory': 'histories' }`
+   * renames a member, `{ users: 'people' }` a resource. A name that does not exist is an error.
+   */
+  renames?: Record<string, string>
   /** Named in the generated file's header. */
   source?: string
 }
@@ -31,7 +43,7 @@ export function generateClient(document: unknown, options: GenerateOptions = {})
   if (!['every-write', 'declared', 'minted'].includes(keys)) {
     throw new TypeError(`codegen: keys must be every-write, declared or minted, not ${JSON.stringify(keys)}`)
   }
-  const model = modelOf(document, options.stripPrefix)
+  const model = renamed(modelOf(document, options.stripPrefix, options.include, options.plurals), options.renames ?? {})
   return {
     code: emit(model, { types: options.types ?? './schema', keys, source: options.source }),
     warnings: model.warnings,

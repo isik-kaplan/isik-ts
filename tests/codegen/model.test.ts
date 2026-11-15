@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { generateClient } from '../../src/codegen'
-import { camel, modelOf, parentOf } from '../../src/codegen/model'
+import { camel, modelOf, parentOf, plural, renamed } from '../../src/codegen/model'
 
 const ok = { '200': { description: '' } }
 const doc = (paths: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
@@ -73,6 +73,7 @@ describe('reading a document', () => {
       etag: { name: 'if-match', required: false },
       declaresKey: { name: 'IDEMPOTENCY-KEY' },
       body: true,
+      list: false,
     })
   })
 
@@ -121,7 +122,6 @@ describe('reading a document', () => {
         '/v0/x/{id}/': { get: {}, head: {} },
         '/v0/x/get/': { get: {} },
         '/v0/x/{id}/get/': { get: {} },
-        '/v0/x/{id}/detail-get-get/': { get: {} },
         '/v0/x/{id}/1st/': { post: {} },
       })
     )
@@ -130,32 +130,52 @@ describe('reading a document', () => {
       ['aB2', ['get']],
       ['aB3', ['get']],
       ['ab', ['get']],
-      ['x', ['get', 'headOne', '_1st', 'getGet', 'detailGetGet', 'collectionGetGet']],
+      ['x', ['get', 'headOne', '_1st', 'getGet', 'collectionGet']],
     ])
     expect(model.warnings).toEqual([
       '/a/b/: "aB" is taken by another resource, so it is "aB2"',
       '/aB/: "aB" is taken by another resource, so it is "aB3"',
       'GET /v0/x/{id}/get/: "get" is taken in x, so it is "getGet"',
-      'GET /v0/x/get/: "get" is taken in x, so it is "collectionGetGet"',
+      'GET /v0/x/get/: "get" is taken in x, so it is "collectionGet"',
     ])
   })
 
-  it('falls back to a numbered name when every other is taken', () => {
+  it('numbers a name when its fallback is taken too', () => {
     const model = modelOf(
       doc({
-        '/v0/x/{id}/': { get: {} },
-        '/v0/x/get/': { get: {} },
-        '/v0/x/{id}/get/': { get: {} },
-        '/v0/x/{id}/collection-get-get/': { get: {} },
-        '/v0/x/{id}/get-get/': { get: {} },
+        '/v0/h/{id}/': { get: {} },
+        '/v0/h/{id}/history/': { get: {} },
+        '/v0/h/{id}/collection-history/': { get: {} },
+        '/v0/h/history/': { get: {} },
       })
     )
-    expect(model.resources[0].members.map((m) => m.name)).toEqual([
-      'get',
-      'getGet',
-      'getGetGet',
-      'collectionGetGet',
-      'get4',
+    expect(model.resources[0].members.map((m) => m.name)).toEqual(['get', 'history', 'collectionHistory', 'history3'])
+  })
+
+  it('reads only the paths under --include, and finds the shared prefix among them', () => {
+    const paths = {
+      '/v0/browser/auth/login': { post: {} },
+      '/v0/browser/account/email': { get: {} },
+      '/v0/app/auth/login': { post: {} },
+    }
+    expect(
+      modelOf(doc(paths), undefined, '/v0/browser/').resources.map((r) => [r.name, r.members.map((m) => m.name)])
+    ).toEqual([
+      ['accountEmail', ['get']],
+      ['authLogin', ['create']],
+    ])
+  })
+
+  it("names a sub-path's methods: the read bare, the writes in the resource's own words, the rest by verb", () => {
+    expect(
+      names({
+        '/v0/u/{id}/': { get: {} },
+        '/v0/u/me/': { get: {}, post: {}, put: {}, patch: {}, delete: {}, head: {} },
+        '/v0/w/': { get: {}, post: {}, put: {}, patch: {}, delete: {}, options: {} },
+      })
+    ).toEqual([
+      ['u', ['get', 'me', 'replaceMe', 'createMe', 'removeMe', 'headMe', 'updateMe']],
+      ['w', ['get', 'replace', 'create', 'remove', 'options', 'update']],
     ])
   })
 
@@ -182,6 +202,92 @@ describe('reading a document', () => {
     expect(code).toContain('  pathParams: { a: string | number; b: string | number }')
   })
 
+  it("takes the project's own names for members and resources, and refuses one that names nothing", () => {
+    const history = doc({
+      '/v0/users/{id}/': { get: {} },
+      '/v0/users/{id}/history/': { get: {} },
+      '/v0/users/history/': { get: {} },
+      '/v0/groups/': { get: {} },
+    })
+    const model = modelOf(history)
+    expect(model.resources[1].members.map((m) => m.name)).toEqual(['get', 'history', 'collectionHistory'])
+    const mine = renamed(model, { 'users.collectionHistory': 'histories', users: 'people' })
+    expect(mine.resources.map((r) => [r.name, r.members.map((m) => m.name)])).toEqual([
+      ['groups', ['get']],
+      ['people', ['get', 'history', 'histories']],
+    ])
+    expect(model.resources[1].name).toBe('users')
+    expect(generateClient(history, { renames: { 'users.history': 'changes' } }).code).toContain('      changes: (')
+    const refused: [Record<string, string>, string][] = [
+      [{ 'users.nope': 'x' }, 'codegen: rename users.nope: there is no such member'],
+      [{ 'nope.get': 'x' }, 'codegen: rename nope.get: there is no such member'],
+      [{ 'users.get.x': 'y' }, 'codegen: rename users.get.x: there is no such member'],
+      [{ 'users.get': 'history' }, 'codegen: rename users.get: users already has a history'],
+      [{ nope: 'x' }, 'codegen: rename nope: there is no such resource'],
+      [{ users: 'groups' }, 'codegen: rename users: there is already a groups'],
+    ]
+    for (const [renames, message] of refused) expect(() => renamed(model, renames)).toThrow(message)
+  })
+
+  it('names a GET list on the collection in the plural - an array or a page of results - and nothing else', () => {
+    const json = (schema: unknown) => ({ '200': { content: { 'application/json': { schema } } } })
+    const paths = {
+      '/v0/u/{id}/': { get: {} },
+      '/v0/u/{id}/history/': { get: { responses: json({ type: 'array' }) } },
+      '/v0/u/history/': { get: { responses: json({ $ref: '#/components/schemas/Page' }) } },
+      '/v0/u/scopes/': { get: { responses: json({ type: 'array' }) } },
+      '/v0/u/me/': { get: { responses: json({ type: 'object' }) } },
+      '/v0/u/read-all/': { post: { responses: json({ type: 'array' }) } },
+      '/v0/u/thing/': {
+        get: { responses: { '200': { $ref: '#/components/responses/Things' }, '400': json({ type: 'array' }) } },
+      },
+      '/v0/u/raw/': { get: { responses: { '200': { content: { 'text/plain': {} } }, '204': {} } } },
+      '/v0/u/odd/': { get: { responses: json({ properties: { results: { type: 'object' } } }) } },
+      '/v0/u/bare/': { get: { responses: 'none' } },
+      '/v0/u/err/': {
+        get: { responses: { '400': { content: { 'application/json': { schema: { type: 'array' } } } } } },
+      },
+      '/v0/w/': { get: {} },
+    }
+    const components = {
+      components: {
+        schemas: {
+          Page: { type: 'object', properties: { results: { $ref: '#/components/schemas/List' } } },
+          List: { type: 'array' },
+        },
+        responses: { Things: { content: { 'application/json': { schema: { type: 'array' } } } } },
+      },
+    }
+    const members = (plurals?: boolean) =>
+      modelOf(doc(paths, components), undefined, undefined, plurals).resources[0].members.map((m) => m.name)
+    expect(members()).toEqual([
+      'get',
+      'history',
+      'me',
+      'err',
+      'odd',
+      'raw',
+      'bare',
+      'things',
+      'scopes',
+      'histories',
+      'readAll',
+    ])
+    expect(members(false)).toEqual([
+      'get',
+      'history',
+      'me',
+      'err',
+      'odd',
+      'raw',
+      'bare',
+      'thing',
+      'scopes',
+      'collectionHistory',
+      'readAll',
+    ])
+  })
+
   it('quotes a parameter or member name that is not an identifier', () => {
     const code = generateClient(
       doc({
@@ -205,6 +311,36 @@ describe('the helpers', () => {
       parentOf('/'),
       parentOf('a'),
     ]).toEqual(['/a/', '/a', '/', '/', null, null])
+  })
+
+  it('pluralise the last word of a name, leaving a plural one alone', () => {
+    const cases: [string, string][] = [
+      ['history', 'histories'],
+      ['delegatableScope', 'delegatableScopes'],
+      ['delegatableScopes', 'delegatableScopes'],
+      ['permissions', 'permissions'],
+      ['status', 'statuses'],
+      ['analysis', 'analyses'],
+      ['box', 'boxes'],
+      ['match', 'matches'],
+      ['wish', 'wishes'],
+      ['buzz', 'buzzes'],
+      ['class', 'classes'],
+      ['day', 'days'],
+      ['person', 'people'],
+      ['child', 'children'],
+      ['man', 'men'],
+      ['woman', 'women'],
+      ['children', 'children'],
+      ['myAdminPerson', 'myAdminPeople'],
+      ['Person', 'People'],
+      ['adminPerson', 'adminPeople'],
+      ['people', 'people'],
+      ['getHistory', 'getHistories'],
+      ['meReauthentication', 'meReauthentications'],
+      ['report2', 'report2s'],
+    ]
+    expect(cases.map(([word]) => plural(word))).toEqual(cases.map(([, expected]) => expected))
   })
 
   it('camel-case words', () => {

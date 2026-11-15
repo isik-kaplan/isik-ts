@@ -220,6 +220,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+  /v0/users/{id}/history/:
+    get:
+      operationId: users_history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Change'
+  /v0/users/history/:
+    get:
+      operationId: users_history_list
+      parameters:
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedChangeList'
   /v0/users/me/:
     get:
       operationId: users_me_retrieve
@@ -559,6 +589,23 @@ components:
         name:
           type: string
       required: [id, name]
+    Change:
+      type: object
+      properties:
+        at:
+          type: string
+          format: date-time
+      required: [at]
+    PaginatedChangeList:
+      type: object
+      properties:
+        count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Change'
+      required: [count, results]
     PatchedUserRequest:
       type: object
       properties:

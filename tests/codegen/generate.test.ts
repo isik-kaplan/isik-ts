@@ -35,9 +35,6 @@ describe('the generated files', () => {
       await expect(generated.code).toMatchFileSnapshot(`generated/client.${keys}.ts`)
       for (const warning of generated.warnings) warnings.add(warning)
     }
-    expect([...warnings]).toEqual([
-      'GET /v0/tasks/list/: "list" is taken in tasks, so it is "getList"',
-      'GET /v0/tasks/stats/: "stats" is taken in tasks, so it is "getStats"',
-    ])
+    expect([...warnings]).toEqual(['GET /v0/tasks/stats/: "stats" is taken in tasks, so it is "collectionStats"'])
   })
 })
