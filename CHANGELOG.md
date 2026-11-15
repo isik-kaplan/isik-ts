@@ -23,6 +23,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** a generated client's `onRequest` `end` event, and `RequestEvent` in
+  `@isikk/core/debug`, call the echoed `X-Request-ID` `correlationId` instead of `requestId`. isik
+  echoes the request's correlation id, which is the one `createDjangoFetch` forwarded when there was
+  one; its own per-request `request_id` never leaves the server. Regenerate clients with
+  `isikk-gen-client`.
 - **Breaking:** the sync engine sets no timings of its own. With `debounce`, `interval` and `backoff`
   unset, a write starts no sync, nothing syncs on a timer, and a failure waits for the next trigger.
   The old values were 500 ms, 30 s, and 1 s doubling to 5 min; pass them to keep that behaviour. A

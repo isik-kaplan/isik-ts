@@ -120,7 +120,7 @@ back as text, and an empty body is `undefined` (`''` as an error). A network fai
 CSRF and cookie forwarding); `headers`, an object or a function called per request; `pathParams`
 when the prefix has parameters; `generateKey` under `minted`; and `onRequest`, which gets an event
 when each request starts and ends (method, path, URL, idempotency key, etag, status, time,
-`X-Request-Id`). `logRequests` from [`@isikk/core/debug`](debug.md) logs those events.
+`X-Request-Id` as `correlationId`). `logRequests` from [`@isikk/core/debug`](debug.md) logs those events.
 
 ## Programmatic use
 

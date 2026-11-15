@@ -269,8 +269,8 @@ describe('logRequests', () => {
     tell({ phase: 'start', ...base, etag: '"1"' })
     tell({ phase: 'start', ...base, idempotencyKey: 'k' })
     tell({ phase: 'start', ...base })
-    tell({ phase: 'end', ...base, status: 200, ok: true, ms: 12, requestId: 'r-1' })
-    tell({ phase: 'end', ...base, status: 412, ok: false, ms: 3, requestId: null })
+    tell({ phase: 'end', ...base, status: 200, ok: true, ms: 12, correlationId: 'r-1' })
+    tell({ phase: 'end', ...base, status: 412, ok: false, ms: 3, correlationId: null })
     const failure = new Error('offline')
     tell({ phase: 'error', ...base, ms: 9, error: failure })
     expect(spies.debug.mock.calls).toEqual([

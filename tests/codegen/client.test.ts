@@ -301,7 +301,7 @@ describe('onRequest', () => {
         status: 409,
         ok: false,
         ms: 5,
-        requestId: 'r-1',
+        correlationId: 'r-1',
       },
       {
         phase: 'start',
@@ -321,7 +321,7 @@ describe('onRequest', () => {
         status: 409,
         ok: false,
         ms: 5,
-        requestId: 'r-1',
+        correlationId: 'r-1',
       },
     ])
   })

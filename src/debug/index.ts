@@ -227,7 +227,7 @@ export type RequestEvent =
       status: number
       ok: boolean
       ms: number
-      requestId: string | null
+      correlationId: string | null
     }
   | { phase: 'error'; id: number; method: string; path: string; url: string; ms: number; error: unknown }
 
@@ -242,7 +242,7 @@ export function logRequests(logger: Logger): (event: RequestEvent) => void {
       const extra = { idempotencyKey: event.idempotencyKey, etag: event.etag }
       logger.debug(`→ ${name}`, ...(extra.idempotencyKey === undefined && extra.etag === undefined ? [] : [extra]))
     } else if (event.phase === 'end') {
-      const id = event.requestId === null ? '' : ` (${event.requestId})`
+      const id = event.correlationId === null ? '' : ` (${event.correlationId})`
       const line = `← ${event.status} ${name} ${event.ms}ms${id}`
       if (event.ok) logger.debug(line)
       else logger.warn(line)

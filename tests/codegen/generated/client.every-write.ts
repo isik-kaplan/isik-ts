@@ -33,7 +33,7 @@ export type NoIdempotencyKey = { none: string }
 /** What onRequest is told: a request starting, and ending with a status - or failing with no answer. */
 export type RequestEvent =
   | { phase: 'start'; id: number; method: string; path: string; url: string; idempotencyKey?: string; etag?: string }
-  | { phase: 'end'; id: number; method: string; path: string; url: string; status: number; ok: boolean; ms: number; requestId: string | null }
+  | { phase: 'end'; id: number; method: string; path: string; url: string; status: number; ok: boolean; ms: number; correlationId: string | null }
   | { phase: 'error'; id: number; method: string; path: string; url: string; ms: number; error: unknown }
 
 type Init = {
@@ -142,8 +142,8 @@ export function createClient(options: ClientOptions = {}) {
       throw error
     }
     const payload = await read(response)
-    const requestId = response.headers.get('X-Request-Id')
-    tell({ phase: 'end', id, method, path, url, status: response.status, ok: response.ok, ms: Date.now() - started, requestId })
+    const correlationId = response.headers.get('X-Request-Id')
+    tell({ phase: 'end', id, method, path, url, status: response.status, ok: response.ok, ms: Date.now() - started, correlationId })
     return (response.ok ? { data: payload, response } : { error: payload ?? '', response }) as never
   }
 
