@@ -57,6 +57,13 @@ ifMatch('*') // { 'If-Match': '*' } - overwrite whatever is there
 
 Type-only marks, nothing at runtime. `Versioned` is on headers whose write decided its version - from `ifMatch`, `anyVersion`, or a submit given an `etag`, `null` included. `Keyed` is on headers carrying a key the hooks or `idempotencyKey` made. `IdempotencyKey` is `string & Keyed`. A client method that takes `headers: WriteHeaders & Versioned & Keyed` refuses headers built without them at compile time. See [hooks.md](hooks.md#branded-headers).
 
+The marks are `unique symbol`s, so `@isikk/core` must resolve to **one physical install**. Two
+copies of the same version still declare two different symbols, and TypeScript then reports
+`Property '[versioned]' is missing in type ... but required in type 'Versioned'`, which points away
+from the real cause. In a workspace monorepo, `npm install <file>.tgz -w <workspace>` can leave a
+nested `node_modules/@isikk/core` beside the hoisted one. To fix it, delete the nested copy and
+run `npm install` again, or check with `npm ls @isikk/core` that only one copy resolves.
+
 ## isPreconditionFailed / isPreconditionRequired
 
 Whether a response is a 412 (the `If-Match` sent names a version someone else has replaced) or a 428 (the server needs an `If-Match` and none was sent). Both answer `false` with no response.
