@@ -74,6 +74,13 @@ not, for example allauth's `/account/email`.
   compile, and a blank reason throws. Use it with `useIdempotencyKey`, whose key lasts for the whole
   attempt, so a resubmit after a lost response reuses it. The check doesn't depend on the document
   declaring the header.
+- `createStrictRestClient<paths, 'declared'>({ requireKey: 'declared' })` requires a key only on
+  the writes whose operation declares an `Idempotency-Key` header, for a project that wants its
+  document to set that policy. The rule is given twice, as the type parameter and as the option, so
+  the types and the runtime agree; a mismatch doesn't compile. The document doesn't exist at runtime,
+  so under this rule only the types check: an untyped caller's missing key goes out as no key. The
+  rule is only as good as the document. A write that needs a key but whose operation doesn't declare
+  the header compiles without one, which is why `'every-write'` is the default.
 - `createRestClient` mints a key for a write that names none, using `generateKey` (default: a v4
   UUID; `null` mints none). A key minted per call protects only that call. Use this client for
   scripts and tools, not forms.

@@ -96,14 +96,24 @@ type Unsafe = 'post' | 'put' | 'patch' | 'delete'
 export type NoIdempotencyKey = { none: string }
 
 /**
- * A strict client's writes must name their key, or `{ none: reason }`, so none goes out without one
- * by accident. A loose client also takes `false`, and mints a key for a write that names none.
+ * Which writes must name their key, a type-level mirror of the client's rule:
+ * - `'minted'`: none - `createRestClient` mints a key for a write that names none.
+ * - `'every-write'`: every POST, PUT, PATCH and DELETE, whatever the document says.
+ * - `'declared'`: the writes whose operation declares an `Idempotency-Key` header.
  */
-type KeyField<M extends HttpMethod, Strict extends boolean> = Strict extends true
-  ? M extends Unsafe
-    ? { idempotencyKey: string | NoIdempotencyKey }
+export type KeyRule = 'minted' | 'every-write' | 'declared'
+
+type Declares<O> = [NamedLike<Part<O, 'header'>, 'idempotency-key'>] extends [never] ? false : true
+
+type KeyField<O, M extends HttpMethod, Rule extends KeyRule> = Rule extends 'minted'
+  ? { idempotencyKey?: string | NoIdempotencyKey | false }
+  : M extends Unsafe
+    ? Rule extends 'every-write'
+      ? { idempotencyKey: string | NoIdempotencyKey }
+      : Declares<O> extends true
+        ? { idempotencyKey: string | NoIdempotencyKey }
+        : { idempotencyKey?: string | NoIdempotencyKey }
     : { idempotencyKey?: string | NoIdempotencyKey }
-  : { idempotencyKey?: string | NoIdempotencyKey | false }
 
 /**
  * What a call takes besides its method and path. `idempotencyKey` is sent on a write; `{ none }`
@@ -114,8 +124,8 @@ export type RequestOptions<
   O,
   Bound extends PropertyKey = never,
   M extends HttpMethod = 'get',
-  Strict extends boolean = false,
-> = { signal?: AbortSignal } & KeyField<M, Strict> &
+  Rule extends KeyRule = 'minted',
+> = { signal?: AbortSignal } & KeyField<O, M, Rule> &
   Field<'path', Without<Part<O, 'path'>, Bound>> &
   Field<'query', Part<O, 'query'>> &
   HeadersField<Part<O, 'header'>> &
@@ -160,8 +170,8 @@ export type ActionOf<Paths, Base extends string> = {
   [P in keyof Paths & string]: P extends `${Base}${infer S}` ? (S extends '' | `{${string}` ? never : S) : never
 }[keyof Paths & string]
 
-type Call<Paths, P extends keyof Paths, M extends HttpMethod, B extends PropertyKey, Strict extends boolean> = (
-  ...options: Trailing<RequestOptions<OperationOf<Paths, P, M>, B, M, Strict>>
+type Call<Paths, P extends keyof Paths, M extends HttpMethod, B extends PropertyKey, Rule extends KeyRule> = (
+  ...options: Trailing<RequestOptions<OperationOf<Paths, P, M>, B, M, Rule>>
 ) => Promise<RestResult<OperationOf<Paths, P, M>>>
 
 type Has<Paths, P, M extends HttpMethod> = P extends keyof Paths
@@ -170,25 +180,25 @@ type Has<Paths, P, M extends HttpMethod> = P extends keyof Paths
     : false
   : false
 
-type Collection<Paths, C, B extends PropertyKey, Strict extends boolean> = C extends keyof Paths
-  ? (Has<Paths, C, 'get'> extends true ? { list: Call<Paths, C, 'get', B, Strict> } : {}) &
+type Collection<Paths, C, B extends PropertyKey, Rule extends KeyRule> = C extends keyof Paths
+  ? (Has<Paths, C, 'get'> extends true ? { list: Call<Paths, C, 'get', B, Rule> } : {}) &
       (Has<Paths, C, 'post'> extends true
         ? {
             create: (
               body: BodyOf<OperationOf<Paths, C, 'post'>>,
-              ...options: Trailing<Omit<RequestOptions<OperationOf<Paths, C, 'post'>, B, 'post', Strict>, 'body'>>
+              ...options: Trailing<Omit<RequestOptions<OperationOf<Paths, C, 'post'>, B, 'post', Rule>, 'body'>>
             ) => Promise<RestResult<OperationOf<Paths, C, 'post'>>>
           }
         : {})
   : {}
 
-type Write<Paths, D extends keyof Paths, M extends HttpMethod, Id, B extends PropertyKey, Strict extends boolean> = (
+type Write<Paths, D extends keyof Paths, M extends HttpMethod, Id, B extends PropertyKey, Rule extends KeyRule> = (
   id: Id,
   body: BodyOf<OperationOf<Paths, D, M>>,
-  ...options: Trailing<Omit<RequestOptions<OperationOf<Paths, D, M>, B, M, Strict>, 'body'>>
+  ...options: Trailing<Omit<RequestOptions<OperationOf<Paths, D, M>, B, M, Rule>, 'body'>>
 ) => Promise<RestResult<OperationOf<Paths, D, M>>>
 
-type Detail<Paths, D extends keyof Paths & string, Id, B extends PropertyKey, Strict extends boolean> = (Has<
+type Detail<Paths, D extends keyof Paths & string, Id, B extends PropertyKey, Rule extends KeyRule> = (Has<
   Paths,
   D,
   'get'
@@ -200,13 +210,13 @@ type Detail<Paths, D extends keyof Paths & string, Id, B extends PropertyKey, St
       ) => Promise<RestResult<OperationOf<Paths, D, 'get'>>>
     }
   : {}) &
-  (Has<Paths, D, 'patch'> extends true ? { update: Write<Paths, D, 'patch', Id, B, Strict> } : {}) &
-  (Has<Paths, D, 'put'> extends true ? { replace: Write<Paths, D, 'put', Id, B, Strict> } : {}) &
+  (Has<Paths, D, 'patch'> extends true ? { update: Write<Paths, D, 'patch', Id, B, Rule> } : {}) &
+  (Has<Paths, D, 'put'> extends true ? { replace: Write<Paths, D, 'put', Id, B, Rule> } : {}) &
   (Has<Paths, D, 'delete'> extends true
     ? {
         remove: (
           id: Id,
-          ...options: Trailing<RequestOptions<OperationOf<Paths, D, 'delete'>, B, 'delete', Strict>>
+          ...options: Trailing<RequestOptions<OperationOf<Paths, D, 'delete'>, B, 'delete', Rule>>
         ) => Promise<RestResult<OperationOf<Paths, D, 'delete'>>>
       }
     : {})
@@ -217,19 +227,19 @@ type Detail<Paths, D extends keyof Paths & string, Id, B extends PropertyKey, St
  * on the detail; `action(id, method, 'sub/path/')` and `collectionAction(method, 'sub/path/')` for
  * anything under either.
  */
-export type Resource<Paths, D extends DetailPath<Paths>, Strict extends boolean = false> = Collection<
+export type Resource<Paths, D extends DetailPath<Paths>, Rule extends KeyRule = 'minted'> = Collection<
   Paths,
   CollectionOf<D>,
   keyof ParentParams<Paths, D>,
-  Strict
+  Rule
 > &
-  Detail<Paths, D, IdOf<Paths, D>, keyof PathParams<Paths, D>, Strict> & {
+  Detail<Paths, D, IdOf<Paths, D>, keyof PathParams<Paths, D>, Rule> & {
     action<S extends ActionOf<Paths, Prefix<D>>, M extends MethodsOf<Paths, `${Prefix<D>}${S}` & keyof Paths>>(
       id: IdOf<Paths, D>,
       method: M,
       action: S,
       ...options: Trailing<
-        RequestOptions<OperationOf<Paths, `${Prefix<D>}${S}` & keyof Paths, M>, keyof PathParams<Paths, D>, M, Strict>
+        RequestOptions<OperationOf<Paths, `${Prefix<D>}${S}` & keyof Paths, M>, keyof PathParams<Paths, D>, M, Rule>
       >
     ): Promise<RestResult<OperationOf<Paths, `${Prefix<D>}${S}` & keyof Paths, M>>>
     collectionAction<
@@ -243,18 +253,18 @@ export type Resource<Paths, D extends DetailPath<Paths>, Strict extends boolean 
           OperationOf<Paths, `${Prefix<CollectionOf<D>>}${S}` & keyof Paths, M>,
           keyof ParentParams<Paths, D>,
           M,
-          Strict
+          Rule
         >
       >
     ): Promise<RestResult<OperationOf<Paths, `${Prefix<CollectionOf<D>>}${S}` & keyof Paths, M>>>
   }
 
-export interface RestClient<Paths, Strict extends boolean = false> {
+export interface RestClient<Paths, Rule extends KeyRule = 'minted'> {
   /** Any operation in the document. */
   request<P extends keyof Paths & string, M extends MethodsOf<Paths, P>>(
     method: M,
     path: P,
-    ...options: Trailing<RequestOptions<OperationOf<Paths, P, M>, never, M, Strict>>
+    ...options: Trailing<RequestOptions<OperationOf<Paths, P, M>, never, M, Rule>>
   ): Promise<RestResult<OperationOf<Paths, P, M>>>
   /**
    * The resource whose detail path is `path`. Its last parameter is the id; any before it - a nested
@@ -263,7 +273,7 @@ export interface RestClient<Paths, Strict extends boolean = false> {
   resource<D extends DetailPath<Paths>>(
     path: D,
     ...parent: [keyof ParentParams<Paths, D>] extends [never] ? [] : [params: ParentParams<Paths, D>]
-  ): Resource<Paths, D, Strict>
+  ): Resource<Paths, D, Rule>
 }
 
 export interface RestClientOptions {
@@ -282,7 +292,19 @@ export interface RestClientOptions {
 }
 
 /** A strict client mints nothing: each write names its key, or `false` on purpose. */
-export type StrictRestClientOptions = Omit<RestClientOptions, 'generateKey'>
+/** The rules a strict client can hold its writes to. */
+export type StrictKeyRule = Exclude<KeyRule, 'minted'>
+
+/**
+ * A strict client mints nothing. `requireKey` says which writes must name their key: every one (the
+ * default), or those whose operation declares the header - which must then be said twice, here and
+ * as the type parameter, so the runtime and the types agree.
+ */
+export type StrictRestClientOptions<Rule extends StrictKeyRule = 'every-write'> = Omit<
+  RestClientOptions,
+  'generateKey'
+> &
+  ([Rule] extends ['declared'] ? { requireKey: 'declared' } : { requireKey?: 'every-write' })
 
 type Options = {
   path?: Record<string, unknown>
@@ -370,12 +392,18 @@ export function createRestClient<Paths extends object>(options: RestClientOption
  * compile, and - for a caller the types cannot see - throws before anything is sent. `{ none:
  * reason }` sends none, on purpose and saying why. Pair it with `useIdempotencyKey`, whose key lasts
  * the attempt, not the call.
+ *
+ * `createStrictRestClient<paths, 'declared'>({ requireKey: 'declared' })` requires a key only where
+ * the operation declares the header. The document is not there at runtime, so that rule is the
+ * types' alone: an untyped caller's missing key then goes out as no key, unrefused.
  */
-export function createStrictRestClient<Paths extends object>(
-  options: StrictRestClientOptions = {}
-): RestClient<Paths, true> {
-  return build(options, (method, path, given) => {
+export function createStrictRestClient<Paths extends object, Rule extends StrictKeyRule = 'every-write'>(
+  ...[options]: [Rule] extends ['declared'] ? [StrictRestClientOptions<Rule>] : [StrictRestClientOptions<Rule>?]
+): RestClient<Paths, Rule> {
+  const settings: Omit<RestClientOptions, 'generateKey'> & { requireKey?: StrictKeyRule } = options ?? {}
+  return build(settings, (method, path, given) => {
     if (typeof given === 'string') return given
+    if (given === undefined && settings.requireKey === 'declared') return undefined
     if (typeof given === 'object' && given !== null && typeof given.none === 'string' && given.none.trim() !== '') {
       return undefined
     }
@@ -385,10 +413,10 @@ export function createStrictRestClient<Paths extends object>(
   })
 }
 
-function build<Paths, Strict extends boolean>(
-  options: StrictRestClientOptions,
+function build<Paths, Rule extends KeyRule>(
+  options: Omit<RestClientOptions, 'generateKey'>,
   keyOf: (method: string, path: string, given: Options['idempotencyKey']) => string | undefined
-): RestClient<Paths, Strict> {
+): RestClient<Paths, Rule> {
   const baseUrl = (options.baseUrl ?? '').replace(/\/$/, '')
   const send = options.fetch ?? ((input, init) => fetch(input, init))
 
@@ -439,5 +467,5 @@ function build<Paths, Strict extends boolean>(
     }
   }
 
-  return { request, resource } as unknown as RestClient<Paths, Strict>
+  return { request, resource } as unknown as RestClient<Paths, Rule>
 }

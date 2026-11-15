@@ -21,6 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `createStrictRestClient` will not send a write without an `Idempotency-Key`: it does not compile,
     and throws for an untyped caller; `{ none: 'reason' }` opts out on purpose. `createRestClient`
     mints one, and also takes a bare `false`.
+  - `createStrictRestClient<paths, 'declared'>({ requireKey: 'declared' })` requires a key only where
+    the operation declares the header; the default, `'every-write'`, requires one on every write.
 
 ## [0.22.0] - 2026-11-12
 

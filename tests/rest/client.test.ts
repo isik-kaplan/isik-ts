@@ -286,6 +286,16 @@ describe('the client', () => {
     )
   })
 
+  it('makes a strict client with no options at all, on the global fetch', async () => {
+    const fake = server()
+    vi.stubGlobal('fetch', fake.fetch)
+    await createStrictRestClient<paths>().request('post', '/v0/account/email', {
+      body: { email: 'a' },
+      idempotencyKey: 'k',
+    })
+    expect(fake.sent[0]).toMatchObject({ url: '/v0/account/email', headers: { 'idempotency-key': 'k' } })
+  })
+
   it('uses the global fetch, looked up per call', async () => {
     const first = server()
     vi.stubGlobal('fetch', first.fetch)
@@ -315,6 +325,22 @@ describe('a strict client', () => {
     for (const idempotencyKey of [false, null, {}, { none: 1 }, { none: '  ' }]) {
       await expect(tasks.remove('t1', { idempotencyKey })).rejects.toThrow(message)
     }
+    expect(fake.sent).toHaveLength(3)
+  })
+})
+
+describe("a strict client on the 'declared' rule", () => {
+  it('lets a write the types allow go out with no key, and still refuses a malformed opt-out', async () => {
+    const fake = server()
+    const strict = createStrictRestClient<paths, 'declared'>({ fetch: fake.fetch, requireKey: 'declared' })
+    await strict.request('post', '/v0/account/email', { body: { email: 'a' } })
+    await strict.request('post', '/v0/tasks/', { body: { title: 't' }, idempotencyKey: 'k' })
+    await strict.request('post', '/v0/tasks/', { body: { title: 't' }, idempotencyKey: { none: 'why' } })
+    expect(fake.sent.map((s) => s.headers['idempotency-key'])).toEqual([undefined, 'k', undefined])
+    const loose = strict as unknown as { request: (m: string, p: string, o: object) => Promise<unknown> }
+    await expect(loose.request('post', '/v0/account/email', { idempotencyKey: false })).rejects.toThrow(
+      'names no idempotencyKey'
+    )
     expect(fake.sent).toHaveLength(3)
   })
 })
@@ -412,5 +438,34 @@ describe('the types', () => {
       () => strict.resource('/v0/projects/{project}/members/{user}/', { project: 1 }).remove(2),
     ]
     expect([allowed.length, refused.length]).toEqual([6, 7])
+  })
+
+  it("on the 'declared' rule, require the key exactly where the operation declares the header", () => {
+    const strict = createStrictRestClient<paths, 'declared'>({ fetch: server().fetch, requireKey: 'declared' })
+    const strictTasks = strict.resource('/v0/tasks/{id}/')
+    const allowed = [
+      // Undeclared: the email POST and the archive action.
+      () => strict.request('post', '/v0/account/email', { body: { email: 'a' } }),
+      () => strictTasks.action('t1', 'post', 'archive/'),
+      () => strictTasks.create({ title: 'x' }, { idempotencyKey: 'k' }),
+      () => strictTasks.get('t1'),
+    ]
+    const refused = [
+      // @ts-expect-error - the create declares Idempotency-Key, if only as optional
+      () => strictTasks.create({ title: 'x' }),
+      // @ts-expect-error - the update declares it
+      () => strictTasks.update('t1', {}, { etag: '"1"' }),
+      // @ts-expect-error - and so does the delete
+      () => strictTasks.remove('t1', { etag: '"1"' }),
+      // @ts-expect-error - a bare false, still
+      () => strictTasks.create({ title: 'x' }, { idempotencyKey: false }),
+      // @ts-expect-error - the rule must be said to the runtime too
+      () => createStrictRestClient<paths, 'declared'>(),
+      // @ts-expect-error - and said the same way
+      () => createStrictRestClient<paths, 'declared'>({ requireKey: 'every-write' }),
+      // @ts-expect-error - nor can the option name a rule the type does not
+      () => createStrictRestClient<paths>({ requireKey: 'declared' }),
+    ]
+    expect([allowed.length, refused.length]).toEqual([4, 7])
   })
 })
