@@ -44,9 +44,10 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 ## Offline sync (`@isikk/core/sync`, `@isikk/core/sync/react`)
 
 - [sync.md](sync.md) - `openSyncEngine`, `createIndexedDBAdapter`, `createSQLiteAdapter` + `expoSQLite`,
-  `createMemoryAdapter`, `batchPush` / `restPush`, and the hooks `useLiveQuery`, `useSyncedWrite`,
-  `usePendingWrites`, `useSyncStatus`: a local copy, an offline write queue and a feed, against the
-  isik sync protocol in `protocol/sync/v1/` (peer: `react` for the hooks)
+  `createMemoryAdapter`, `batchPush` / `restPush`, `goOffline` / `goOnline` and `syncFully` with
+  progress, and the hooks `useLiveQuery`, `useSyncedWrite`, `usePendingWrites`, `useSyncStatus`,
+  `useSyncProgress`: a local copy, an offline write queue and a feed, against the isik sync protocol
+  in `protocol/sync/v1/` (peer: `react` for the hooks)
 
 ## Django REST framework (`@isikk/core/drf`)
 

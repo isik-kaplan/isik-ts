@@ -111,19 +111,18 @@ describe('starting', () => {
     expect(server.rows.get('tasks')?.size).toBe(1)
   })
 
-  it('uses its defaults: a 500ms debounce and a 30s interval', async () => {
+  it('has no timings of its own: unset, neither a write nor time starts a sync', async () => {
     vi.useFakeTimers()
     const server = new FakeServer()
     const { fetch, feeds } = counting(server)
     const engine = await client(server, U1, { fetch, debounce: undefined, interval: undefined })
     engine.start()
     await vi.advanceTimersByTimeAsync(0)
+    expect(feeds()).toBe(1)
     await engine.create('tasks', task(id(1)))
-    await vi.advanceTimersByTimeAsync(500)
-    expect(server.rows.get('tasks')?.size).toBe(1)
-    const after = feeds()
-    await vi.advanceTimersByTimeAsync(30_000)
-    expect(feeds()).toBe(after + 1)
+    await vi.advanceTimersByTimeAsync(3_600_000)
+    expect(feeds()).toBe(1)
+    expect(server.rows.get('tasks')?.size ?? 0).toBe(0)
     engine.close()
   })
 
@@ -169,28 +168,21 @@ describe('backing off', () => {
     engine.close()
   })
 
-  it('defaults to 1s, doubling to 5 minutes, and honours Retry-After', async () => {
+  it('retries nothing on its own without a backoff, but honours Retry-After', async () => {
     vi.useFakeTimers()
     const server = new FakeServer()
-    let retryAfter: string | null = null
-    const { fetch, feeds } = counting(
-      server,
-      () => new Response(null, { status: 503, headers: retryAfter === null ? {} : { 'Retry-After': retryAfter } })
-    )
+    const { fetch, feeds } = counting(server, () => new Response(null, { status: 503 }))
     const engine = await client(server, U1, { fetch })
     engine.start()
     await vi.advanceTimersByTimeAsync(0)
-    await vi.advanceTimersByTimeAsync(999)
+    await vi.advanceTimersByTimeAsync(3_600_000)
     expect(feeds()).toBe(1)
-    await vi.advanceTimersByTimeAsync(1)
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
     expect(feeds()).toBe(2)
-    for (let i = 0; i < 12; i += 1) await vi.advanceTimersByTimeAsync(300_000)
-    const capped = feeds()
-    await vi.advanceTimersByTimeAsync(300_000)
-    expect(feeds()).toBe(capped + 1)
     engine.close()
 
-    retryAfter = '42'
+    const retryAfter = '42'
     const told = counting(
       server,
       () => new Response(null, { status: 503, headers: { 'Retry-After': retryAfter as string } })

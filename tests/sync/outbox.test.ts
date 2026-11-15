@@ -132,6 +132,20 @@ describe('selectBatch', () => {
     expect(rowKeyOf('tasks', 'x')).not.toBe(rowKeyOf('notes', 'x'))
   })
 
+  it('takes only entries queued through a seq, holding back one that waits on a later create', () => {
+    const early = entry({ id: 'a' })
+    const referring = entry({ id: 'b', body: { project: 'p' } })
+    const create = entry({ id: 'p', method: 'POST' })
+    const late = entry({ id: 'c' })
+    const all = [early, referring, create, late]
+    expect(keys(selectBatch(all, { ...NO_LIMITS, through: referring.seq }, new Set(), wire))).toEqual([early.key])
+    expect(keys(selectBatch(all, { ...NO_LIMITS, through: create.seq }, new Set(), wire))).toEqual([
+      early.key,
+      create.key,
+    ])
+    expect(keys(selectBatch(all, NO_LIMITS, new Set(), wire))).toHaveLength(3)
+  })
+
   it('holds a row with a conflict back, all of it', () => {
     const conflict = entry({ id: 'a', state: 'conflict' })
     const after = entry({ id: 'a' })

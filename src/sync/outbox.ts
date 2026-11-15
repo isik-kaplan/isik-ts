@@ -96,6 +96,8 @@ export function rowKeyOf(model: string, id: string): string {
 export interface BatchLimits {
   maxEntries: number
   maxBytes: number
+  /** Only entries queued up to this `seq`; a later one, and anything waiting on it, stays. */
+  through?: number
 }
 
 /** `{"entries":[]}`, the envelope every batch pays for. */
@@ -130,7 +132,7 @@ export function selectBatch<W>(
     const row = rowKeyOf(entry.model, entry.id)
     if (seenRows.has(row)) continue
     seenRows.add(row)
-    if (entry.state === 'conflict') continue
+    if (entry.state === 'conflict' || entry.seq > (limits.through ?? Infinity)) continue
     const waiting = [...referencesOf(entry.body)].some((id) => {
       if (id === entry.id) return false
       if (deadCreates.has(id)) return true

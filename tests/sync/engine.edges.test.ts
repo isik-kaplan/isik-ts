@@ -217,6 +217,7 @@ describe('the network', () => {
   it('starts with its status at rest, and says when it is syncing', async () => {
     const engine = await client(new FakeServer())
     expect(engine.status()).toStrictEqual({
+      mode: 'online',
       online: true,
       syncing: false,
       paused: null,
@@ -866,16 +867,16 @@ describe('starting and stopping', () => {
     expect(server.rows.get('tasks')?.size ?? 0).toBe(0)
   })
 
-  it('waits the default debounce, not a moment less', async () => {
+  it('starts no sync after a write without a debounce', async () => {
     vi.useFakeTimers()
     const server = new FakeServer()
     const engine = await client(server, U1, { debounce: undefined })
     engine.start()
     await vi.advanceTimersByTimeAsync(0)
     await engine.create('tasks', task(id(1)))
-    await vi.advanceTimersByTimeAsync(499)
+    await vi.advanceTimersByTimeAsync(3_600_000)
     expect(server.rows.get('tasks')?.size ?? 0).toBe(0)
-    await vi.advanceTimersByTimeAsync(1)
+    await engine.sync()
     expect(server.rows.get('tasks')?.size).toBe(1)
     engine.close()
   })

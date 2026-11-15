@@ -25,6 +25,9 @@ const tableOf = (model: string) => `r:${model}`
 interface Snapshot {
   scope: string | null
   model: string | null
+  /** Rows staged so far, and the server's count from `snapshot_begin`, for progress. */
+  received?: number
+  total?: number | null
 }
 
 /** The engine's own state, kept as one record. */
@@ -87,9 +90,37 @@ export class PendingWritesError extends Error {
   }
 }
 
+export class OfflineModeError extends Error {
+  constructor() {
+    super('sync: the engine is offline; call goOnline() first')
+    this.name = 'OfflineModeError'
+  }
+}
+
 export type PausedReason = 'unauthorized' | 'unsupported' | 'precondition_required'
 
+/** `offline`: chosen with `goOffline()` - reads and writes stay local, and nothing reaches the network. */
+export type SyncMode = 'online' | 'offline'
+
+/** How far a sync has come, for a progress screen. A `null` total or remaining is one the server didn't send. */
+export type SyncProgress =
+  | { phase: 'push'; sent: number; total: number }
+  | { phase: 'pull'; received: number; remaining: number | null }
+  | { phase: 'snapshot'; scope: string | null; model: string | null; received: number; total: number | null }
+
+export interface SyncFullyOptions {
+  onProgress?: (progress: SyncProgress) => void
+  /** Stops it between requests, rejecting with the signal's reason. */
+  signal?: AbortSignal
+}
+
+export interface SyncFullyResult {
+  conflicts: number
+  dead: number
+}
+
 export interface SyncStatus {
+  mode: SyncMode
   /** Whether the last request reached the server. */
   online: boolean
   syncing: boolean
@@ -154,12 +185,15 @@ export interface SyncEngineOptions {
   batchSize?: number
   /** The feed's `limit`. Default: the server's. */
   pageSize?: number
-  /** How long after a local write a sync starts, in ms. Default 500. */
+  /** How long after a local write a sync starts, in ms. Unset, a write starts none. */
   debounce?: number
-  /** How often to sync while in the foreground, in ms. Default 30000; 0 never. */
+  /** How often to sync while in the foreground, in ms. Unset or 0, never. */
   interval?: number
-  /** The first and the longest wait after a failure, in ms. Default 1000 and 300000. */
-  backoff?: { base?: number; max?: number }
+  /**
+   * The first and the longest wait before retrying a failed sync, in ms, doubling in between. Unset,
+   * nothing retries on its own: the next trigger does. A server's `Retry-After` is honoured either way.
+   */
+  backoff?: { base: number; max: number }
   /**
    * Subscribes to the app coming to the foreground, returning an unsubscribe - React Native's
    * `AppState`, say. In a browser, `visibilitychange` and `online` are used without it.
@@ -178,20 +212,36 @@ export interface SyncEngineOptions {
 
 class Fatal extends Error {}
 
-class Offline extends Error {
+/** The server was out of reach, or answered 429 or 5xx; `retryAfter` is its `Retry-After`, in seconds. */
+export class SyncUnreachableError extends Error {
   readonly retryAfter: number | null
   constructor(cause: unknown, retryAfter: number | null = null) {
     super('sync: the server could not be reached', { cause })
+    this.name = 'SyncUnreachableError'
     this.retryAfter = retryAfter
   }
 }
 
-class Paused extends Error {
+/** Syncing stopped until `resume()`: the server refused the user, or this client's protocol. */
+export class SyncPausedError extends Error {
   readonly reason: PausedReason
   constructor(reason: PausedReason) {
     super(`sync: paused (${reason})`)
+    this.name = 'SyncPausedError'
     this.reason = reason
   }
+}
+
+/** One sync's bounds and counts. */
+interface Run {
+  /** Whether it rejects on failure, as `syncFully` does. */
+  full: boolean
+  /** The last outbox entry it pushes; later writes wait for the next sync. */
+  through: number
+  sent: number
+  received: number
+  onProgress?: (progress: SyncProgress) => void
+  signal?: AbortSignal
 }
 
 /** The bounds of a local query, as an adapter range. */
@@ -234,10 +284,7 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
   const generateKey = options.generateKey ?? (() => crypto.randomUUID())
   const baseFetch: typeof fetch = options.fetch ?? ((input, init) => fetch(input, init))
   const strategy = options.push ?? batchPush
-  const debounce = options.debounce ?? 500
-  const interval = options.interval ?? 30_000
-  const backoffBase = options.backoff?.base ?? 1000
-  const backoffMax = options.backoff?.max ?? 300_000
+  const { debounce, interval, backoff } = options
   const dbName = `isik-sync:${options.user}`
   const url = (path: string) => options.baseUrl.replace(/\/+$/, '') + path
 
@@ -255,12 +302,14 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
     ...rowTables,
   ])
   const allTables = [META, OUTBOX, DEAD, STAGING, ...rowTables.map((t) => t.name)]
+  const storedMode = await read((tx) => tx.get<SyncMode>(META, 'mode'))
 
   // ---------------------------------------------------------------- events
 
   const listeners = new Set<(event: SyncEvent) => void>()
   const statusListeners = new Set<() => void>()
   let status: SyncStatus = {
+    mode: storedMode ?? 'online',
     online: true,
     syncing: false,
     paused: null,
@@ -299,7 +348,31 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
     // Stryker disable next-line ConditionalExpression: counting again after a change the outbox did not see finds the same counts
     if (event.outbox) refreshCounts().catch(() => undefined)
   }
-  if (channel !== undefined) channel.onmessage = (message: MessageEvent<SyncEvent>) => emit(message.data, false)
+  if (channel !== undefined) {
+    channel.onmessage = (message: MessageEvent<SyncEvent | { mode: SyncMode }>) => {
+      if ('mode' in message.data) setStatus({ mode: message.data.mode })
+      else emit(message.data, false)
+    }
+  }
+
+  let progress: SyncProgress | null = null
+  const progressListeners = new Set<() => void>()
+  let reporter: Run['onProgress']
+
+  function setProgress(next: SyncProgress | null) {
+    progress = next
+    for (const listener of progressListeners) listener()
+  }
+
+  function report(next: SyncProgress) {
+    setProgress(next)
+    try {
+      // Stryker disable next-line OptionalChaining: calling a missing reporter throws inside the try that swallows an observer's throw
+      reporter?.(next)
+    } catch {
+      // An observer that throws never stops the sync.
+    }
+  }
 
   // ---------------------------------------------------------------- transactions
 
@@ -497,7 +570,7 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       await enqueue(tx, touched, { model, id, method: 'POST', body: row, base: {} })
       return saveRow(tx, model, id, server, touched)
     })
-    scheduleSync(debounce)
+    afterWrite()
     return created as T[M]
   }
 
@@ -525,7 +598,7 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       }
       return saveRow(tx, model, id, server, touched)
     })
-    scheduleSync(debounce)
+    afterWrite()
     return updated as T[M]
   }
 
@@ -548,7 +621,7 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       }
       await saveRow(tx, model, id, server, touched)
     })
-    scheduleSync(debounce)
+    afterWrite()
   }
 
   // ---------------------------------------------------------------- the outbox, read and resolved
@@ -654,7 +727,7 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       return response
     } catch (error) {
       setStatus({ online: false })
-      throw new Offline(error)
+      throw new SyncUnreachableError(error)
     }
   }
 
@@ -662,10 +735,11 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
     // Stryker disable next-line ArrowFunction: a body that is not JSON reads as no code either way
     const body: { code?: unknown } = await response.json().catch(() => ({}))
     if (response.status === 400 && body?.code === 'sync_protocol_unsupported') {
-      throw new Paused('unsupported')
+      throw new SyncPausedError('unsupported')
     }
-    if (response.status === 401 || response.status === 403) throw new Paused('unauthorized')
-    if (response.status === 429 || response.status >= 500) throw new Offline(response.status, retryAfterOf(response))
+    if (response.status === 401 || response.status === 403) throw new SyncPausedError('unauthorized')
+    if (response.status === 429 || response.status >= 500)
+      throw new SyncUnreachableError(response.status, retryAfterOf(response))
     throw new Fatal(`sync: the server answered ${response.status}`)
   }
 
@@ -746,17 +820,25 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
     }
   }
 
-  async function applyPage(page: ChangesPage, requested: string | null, etag: string | null) {
-    await write(async (tx, touched) => {
+  /** What a page brought: live changes, and the snapshot it last added to. */
+  interface Seen {
+    live: number
+    snapshot: Snapshot | null
+  }
+
+  async function applyPage(page: ChangesPage, requested: string | null, etag: string | null): Promise<Seen> {
+    return write(async (tx, touched) => {
       const state = await stateOf(tx)
-      for (const change of page.changes) await applyChange(tx, state, change, touched)
+      const seen: Seen = { live: 0, snapshot: null }
+      for (const change of page.changes) await applyChange(tx, state, change, touched, seen)
       state.cursor = page.cursor
       state.feed = etag === null ? null : { cursor: requested, etag }
       await tx.put(META, 'state', state)
+      return seen
     })
   }
 
-  async function applyChange(tx: StoreTx, state: State, change: Change, touched: SyncEvent) {
+  async function applyChange(tx: StoreTx, state: State, change: Change, touched: SyncEvent, seen: Seen) {
     switch (change.op) {
       case 'scope_granted':
         if (!state.loading.includes(change.scope)) state.loading.push(change.scope)
@@ -769,11 +851,12 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
         await dropScope(tx, change.scope, touched)
         return
       case 'snapshot_begin':
-        state.open.push({ scope: change.scope, model: change.model })
+        state.open.push({ scope: change.scope, model: change.model, received: 0, total: change.total ?? null })
         state.resnapshot = state.resnapshot.filter((model) => model !== change.model)
         return
       case 'snapshot_end': {
         const snapshot = { scope: change.scope, model: change.model }
+        seen.snapshot = state.open.find((s) => snapshotId(s) === snapshotId(snapshot)) ?? seen.snapshot
         await swap(tx, snapshot, touched)
         state.open = state.open.filter((s) => snapshotId(s) !== snapshotId(snapshot))
         state.loading = state.loading.filter((scope) => scope !== change.scope)
@@ -784,6 +867,8 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
         if (resource === undefined) return
         const snapshot = covering(state.open, change.model, scopeOf(resource, change.data))
         if (snapshot !== undefined) {
+          snapshot.received = (snapshot.received ?? 0) + 1
+          seen.snapshot = snapshot
           await tx.put(
             STAGING,
             stagingKey(snapshotId(snapshot), change.model, change.id),
@@ -792,16 +877,25 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
           )
           return
         }
+        seen.live += 1
         await applyServer(tx, change.model, change.id, { etag: change.etag, data: change.data }, touched)
         return
       }
       case 'delete':
+        seen.live += 1
         await applyServer(tx, change.model, change.id, null, touched)
     }
   }
 
-  async function pull() {
+  /** Throws instead of reaching the network once the engine has gone offline, or the run was stopped. */
+  function guard(run: Run) {
+    if (status.mode === 'offline') throw new OfflineModeError()
+    run.signal?.throwIfAborted()
+  }
+
+  async function pull(run: Run) {
     for (;;) {
+      guard(run)
       const state = await read((tx) => stateOf(tx))
       const params = new URLSearchParams()
       if (state.cursor !== null) params.set('cursor', state.cursor)
@@ -823,17 +917,28 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       }
       if (response.status !== 200) await refusal(response)
       const page = (await response.json()) as ChangesPage
-      await applyPage(page, state.cursor, response.headers.get('ETag'))
+      const seen = await applyPage(page, state.cursor, response.headers.get('ETag'))
+      run.received += seen.live
+      const { snapshot } = seen
+      if (snapshot !== null) {
+        const { scope, model, received = 0, total = null } = snapshot
+        report({ phase: 'snapshot', scope, model, received, total })
+      } else report({ phase: 'pull', received: run.received, remaining: page.remaining ?? null })
       if (!page.has_more) return
     }
   }
 
   // ---------------------------------------------------------------- push
 
-  async function flush() {
+  async function flush(run: Run) {
+    // Whether this flush has sent anything, so its last batch's progress is reported once settled.
+    let moved = false
     for (;;) {
+      guard(run)
       const { maxEntries, maxBytes } = await limits()
-      const selected = await write(async (tx, touched) => {
+      // Reading the capabilities was a request of its own, which going offline may have waited out.
+      guard(run)
+      const { selected, left } = await write(async (tx, touched) => {
         const entries = (await tx.range<Entry>(OUTBOX)).map((r) => r.value)
         const deadCreates = new Set(
           (await tx.range<DeadLetter>(DEAD))
@@ -844,7 +949,8 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
         const servers = new Map<string, ServerCopy | null>()
         for (const entry of entries)
           servers.set(rowKeyOf(entry.model, entry.id), await serverOf(tx, entry.model, entry.id))
-        const { batch, tooLarge } = selectBatch(entries, { maxEntries, maxBytes }, deadCreates, (entry): PushEntry => {
+        const bounds = { maxEntries, maxBytes, through: run.through }
+        const { batch, tooLarge } = selectBatch(entries, bounds, deadCreates, (entry): PushEntry => {
           const wire: PushEntry = { key: entry.key, method: entry.method, model: entry.model, id: entry.id }
           if (entry.body !== undefined) wire.body = entry.body
           const etag = servers.get(rowKeyOf(entry.model, entry.id))?.etag
@@ -862,8 +968,10 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
           )
         }
         for (const { entry } of batch) await putEntry(tx, { ...entry, state: 'sending' }, touched)
-        return batch
+        const eligible = entries.filter((e) => e.state !== 'conflict' && e.seq <= run.through)
+        return { selected: batch, left: eligible.length - tooLarge.length }
       })
+      if (moved || selected.length > 0) report({ phase: 'push', sent: run.sent, total: run.sent + left })
       if (selected.length === 0) return
 
       let response
@@ -876,12 +984,15 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       } catch (error) {
         setStatus({ online: false })
         await requeue(selected.map((s) => s.entry))
-        throw new Offline(error)
+        throw new SyncUnreachableError(error)
       }
       const settled = await settle(
         selected.map((s) => s.entry),
         response.results
       )
+      // Only what the server answered: a refused batch is sent again.
+      run.sent += response.results.length
+      moved = true
       if (response.refused !== undefined) {
         const { status: code, body, retryAfter } = response.refused
         if (code === 413) {
@@ -890,13 +1001,13 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
           continue
         }
         if (code === 400 && (body as { code?: string } | null)?.code === 'sync_protocol_unsupported')
-          throw new Paused('unsupported')
-        if (code === 401 || code === 403) throw new Paused('unauthorized')
-        if (code === 429 || code >= 500) throw new Offline(code, retryAfter)
+          throw new SyncPausedError('unsupported')
+        if (code === 401 || code === 403) throw new SyncPausedError('unauthorized')
+        if (code === 429 || code >= 500) throw new SyncUnreachableError(code, retryAfter)
         throw new Fatal(`sync: the push was refused with ${code}`)
       }
-      if (settled.paused !== null) throw new Paused(settled.paused)
-      if (settled.retry) throw new Offline('an entry asked to be retried')
+      if (settled.paused !== null) throw new SyncPausedError(settled.paused)
+      if (settled.retry) throw new SyncUnreachableError('an entry asked to be retried')
     }
   }
 
@@ -1001,41 +1112,66 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
   let timer: ReturnType<typeof setTimeout> | undefined
   let started = false
   let closed = false
+  /** Every sync begun and not yet settled, for `goOffline()` to wait out. */
+  const inFlight = new Set<Promise<void>>()
 
   function exclusive(task: () => Promise<void>): Promise<void> {
-    if (locks !== null) return locks.request(dbName, () => task()).then(() => undefined)
-    return localLock(task)
+    const done = locks !== null ? locks.request(dbName, () => task()).then(() => undefined) : localLock(task)
+    inFlight.add(done)
+    // Stryker disable next-line BlockStatement: a settled sync left in the set is waited out at once
+    const forget = () => {
+      inFlight.delete(done)
+    }
+    done.then(forget, forget)
+    return done
   }
 
-  async function cycle() {
+  const runOf = (bounds: Partial<Run> = {}): Run => ({
+    full: false,
+    through: Infinity,
+    sent: 0,
+    received: 0,
+    ...bounds,
+  })
+
+  async function cycle(run: Run) {
+    // The stored mode, not this tab's copy of it: another tab may have gone offline unheard.
+    const mode = (await read((tx) => tx.get<SyncMode>(META, 'mode'))) ?? 'online'
+    // Offline, the first request's guard throws.
+    setStatus({ mode })
     setStatus({ syncing: true, error: null })
+    reporter = run.onProgress
     try {
       // A push the server is throttling, or failing, still lets the feed come in.
-      const pushed = await flush().then(
+      const pushed = await flush(run).then(
         () => null,
         (error: unknown) => {
-          if (error instanceof Offline && status.online) return error
+          if (error instanceof SyncUnreachableError && status.online) return error
           throw error
         }
       )
-      await pull()
+      await pull(run)
       if (pushed !== null) throw pushed
-      await flush()
+      await flush(run)
       failures = 0
       setStatus({ lastSyncedAt: now() })
     } catch (error) {
-      if (error instanceof Paused) setStatus({ paused: error.reason, error })
-      else if (error instanceof Offline) {
+      // Going offline, or being stopped, is no failure: nothing is retried and no error shows.
+      if (error instanceof OfflineModeError || run.signal?.aborted) throw error
+      if (error instanceof SyncPausedError) setStatus({ paused: error.reason, error })
+      else if (error instanceof SyncUnreachableError) {
         failures += 1
-        const delay =
-          error.retryAfter !== null ? error.retryAfter * 1000 : Math.min(backoffMax, backoffBase * 2 ** (failures - 1))
         setStatus({ error })
-        scheduleSync(delay)
+        if (error.retryAfter !== null) scheduleSync(error.retryAfter * 1000)
+        else if (backoff !== undefined) scheduleSync(Math.min(backoff.max, backoff.base * 2 ** (failures - 1)))
       } else {
         setStatus({ error })
         throw error
       }
+      if (run.full) throw error
     } finally {
+      reporter = undefined
+      setProgress(null)
       setStatus({ syncing: false })
       await refreshCounts()
     }
@@ -1043,7 +1179,9 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
 
   /** Syncs now: pushes the queue, pulls the feed, pushes again. Resolves when that is done. */
   function sync(): Promise<void> {
-    if (closed || status.paused !== null) return Promise.resolve()
+    if (closed) return Promise.resolve()
+    if (status.mode === 'offline') return Promise.reject(new OfflineModeError())
+    if (status.paused !== null) return Promise.resolve()
     // A sync asked for while one runs may have missed what prompted it: one more follows, shared.
     if (running !== null) {
       queued ??= running
@@ -1054,10 +1192,29 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
         })
       return queued
     }
-    running = exclusive(cycle).finally(() => {
+    running = exclusive(() => cycle(runOf())).finally(() => {
       running = null
     })
     return running
+  }
+
+  /**
+   * Pushes everything queued when it was called and pulls until the feed has nothing more, reporting
+   * progress as it goes - before going offline, and on coming back. Writes made while it runs wait for
+   * the next sync, so it always ends. Conflicts and dead letters don't fail it: it resolves with their
+   * counts. It rejects offline, paused, out of reach, or stopped.
+   */
+  async function syncFully(fullOptions: SyncFullyOptions = {}): Promise<SyncFullyResult> {
+    if (closed) throw new Error('sync: the engine is closed')
+    if (status.paused !== null) throw new SyncPausedError(status.paused)
+    const through = await read(async (tx) => (await stateOf(tx)).seq)
+    await exclusive(() => cycle(runOf({ ...fullOptions, full: true, through })))
+    const counts = await pendingCounts()
+    return { conflicts: counts.conflicts, dead: counts.dead }
+  }
+
+  function afterWrite() {
+    if (debounce !== undefined) scheduleSync(debounce)
   }
 
   function scheduleSync(delay: number) {
@@ -1088,7 +1245,7 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
       unsubscribers.push(() => doc.removeEventListener('visibilitychange', onVisible))
     }
     if (options.foreground !== undefined) unsubscribers.push(options.foreground(onTrigger))
-    if (interval > 0) {
+    if ((interval ?? 0) > 0) {
       const poll = setInterval(() => {
         if (doc === undefined || doc.visibilityState === 'visible') sync().catch(() => undefined)
       }, interval)
@@ -1102,6 +1259,29 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
     started = false
     clearTimeout(timer)
     for (const unsubscribe of unsubscribers.splice(0)) unsubscribe()
+  }
+
+  async function setMode(mode: SyncMode) {
+    await write(async (tx) => {
+      await tx.put(META, 'mode', mode)
+    })
+    setStatus({ mode })
+    channel?.postMessage({ mode })
+  }
+
+  /**
+   * Stops every network call - no pull, no push, no trigger - until `goOnline()`, across restarts and
+   * tabs. Reads and writes go on locally, and writes queue. Resolves once no sync is in flight.
+   */
+  async function goOffline() {
+    await setMode('offline')
+    clearTimeout(timer)
+    await Promise.allSettled([...inFlight])
+  }
+
+  /** Lets the triggers sync again. It starts no sync itself: call `syncFully()` for that. */
+  async function goOnline() {
+    await setMode('online')
   }
 
   /** Lifts a pause - after a fresh login, or an app update - and syncs. */
@@ -1161,7 +1341,17 @@ export async function openSyncEngine<T extends Record<string, Row> = Record<stri
         statusListeners.delete(listener)
       }
     },
+    progress: () => progress,
+    subscribeProgress(listener: () => void) {
+      progressListeners.add(listener)
+      return () => {
+        progressListeners.delete(listener)
+      }
+    },
     sync,
+    syncFully,
+    goOffline,
+    goOnline,
     start,
     stop,
     resume,

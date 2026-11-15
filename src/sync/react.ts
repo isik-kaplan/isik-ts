@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
-import type { PageQuery, PendingCounts, SyncEngine, SyncEvent, SyncStatus } from './engine'
+import type { PageQuery, PendingCounts, SyncEngine, SyncEvent, SyncProgress, SyncStatus } from './engine'
 import type { DeadLetter, Entry } from './outbox'
 import type { Row } from './protocol'
 
@@ -139,4 +139,9 @@ export function usePendingWrites(engine: AnyEngine, page: PageQuery = {}): Pendi
 /** The engine's status - online, syncing, paused, the counts - re-rendering when it changes. */
 export function useSyncStatus(engine: AnyEngine): SyncStatus {
   return useSyncExternalStore(engine.subscribeStatus, engine.status, engine.status)
+}
+
+/** How far the running sync has come - whatever started it - or `null` while none runs. */
+export function useSyncProgress(engine: AnyEngine): SyncProgress | null {
+  return useSyncExternalStore(engine.subscribeProgress, engine.progress, engine.progress)
 }

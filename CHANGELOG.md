@@ -7,7 +7,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Sync offline mode. The app decides when; the engine only carries it out:
+  - `engine.goOffline()` / `engine.goOnline()`. Offline, nothing reaches the network, and reads and
+    writes stay local. The mode holds across restarts and tabs, and shows as `status().mode`.
+    `goOnline()` starts no sync itself. While offline, `sync()` and `syncFully()` reject with
+    `OfflineModeError`.
+  - `engine.syncFully({ onProgress, signal })` pushes what was queued when it was called and pulls
+    until the feed is done. It resolves with `{ conflicts, dead }` and rejects with
+    `SyncUnreachableError` or `SyncPausedError`, which are now exported.
+  - Progress, reported by every sync: `{ phase: 'push' | 'pull' | 'snapshot', ... }`, through
+    `onProgress`, `engine.progress()` / `subscribeProgress`, and `useSyncProgress(engine)`.
+  - `selectBatch` takes `through`, the last `seq` it may select.
+
 ### Changed
+
+- **Breaking:** the sync engine sets no timings of its own. With `debounce`, `interval` and `backoff`
+  unset, a write starts no sync, nothing syncs on a timer, and a failure waits for the next trigger.
+  The old values were 500 ms, 30 s, and 1 s doubling to 5 min; pass them to keep that behaviour. A
+  server's `Retry-After` is still honoured. `backoff`, when given, needs both `base` and `max`.
 
 - Sync protocol v1 gains two optional fields for progress bars, without a new version:
   - `remaining` on each `/sync/changes` page estimates the live changes still to come. It is never

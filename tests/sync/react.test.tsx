@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SyncEngine } from '../../src/sync/engine'
 import type { Row } from '../../src/sync/protocol'
-import { useLiveQuery, usePendingWrites, useSyncStatus, useSyncedWrite } from '../../src/sync/react'
+import { useLiveQuery, usePendingWrites, useSyncProgress, useSyncStatus, useSyncedWrite } from '../../src/sync/react'
 import { U1, client, id, task } from './support/harness'
 import { FakeServer } from './support/server'
 
@@ -193,6 +193,24 @@ describe('useSyncStatus', () => {
     expect(result.current.lastSyncedAt).toBeNull()
     await act(() => engine.sync())
     expect(result.current.lastSyncedAt).not.toBeNull()
+  })
+})
+
+describe('useSyncProgress', () => {
+  it('re-renders with the running sync, and with null once it ends', async () => {
+    const server = new FakeServer()
+    server.create('tasks', task(id(1)))
+    const engine = await engineFor(server)
+    const seen: unknown[] = []
+    const { result } = renderHook(() => {
+      const progress = useSyncProgress(engine)
+      seen.push(progress)
+      return progress
+    })
+    expect(result.current).toBeNull()
+    await act(() => engine.sync())
+    expect(seen).toContainEqual({ phase: 'snapshot', scope: null, model: null, received: 1, total: 1 })
+    expect(result.current).toBeNull()
   })
 })
 

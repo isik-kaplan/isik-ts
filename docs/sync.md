@@ -24,6 +24,9 @@ const engine = await openSyncEngine<Tables>({
   document: openapi, // its `x-sync` extensions name the synced resources
   baseUrl: 'https://api.example.com',
   fetch: createDjangoFetch({ baseUrl: 'https://api.example.com' }),
+  debounce: 500, // the timings are the project's: unset, each trigger is off
+  interval: 30_000,
+  backoff: { base: 1_000, max: 300_000 },
 })
 engine.start()
 ```
@@ -53,14 +56,16 @@ const engine = await openSyncEngine<Tables>({
 | `push`      | `batchPush`                    | `restPush` replays each write through its REST endpoint instead; a project can pass its own `PushStrategy` |
 | `batchSize` | none                           | the most writes one push carries; the server's advertised limit caps it too                                |
 | `pageSize`  | the server's                   | the feed's `limit`                                                                                         |
-| `debounce`  | 500 ms                         | how long after a local write a sync starts                                                                 |
-| `interval`  | 30 s                           | how often to sync while visible; `0` never                                                                 |
-| `backoff`   | 1 s, doubling to 5 min         | after a failure; a `Retry-After` wins                                                                      |
+| `debounce`  | off                            | how long after a local write a sync starts                                                                 |
+| `interval`  | off                            | how often to sync while visible; `0` is off too                                                            |
+| `backoff`   | off                            | `{ base, max }`: the wait before retrying a failure, doubling; off, the next trigger retries               |
 | `locks`     | `navigator.locks`              | `null` keeps the lock to the page                                                                          |
 | `broadcast` | when `BroadcastChannel` exists | tell other tabs of changes                                                                                 |
 
 There is no default batch size: the server says what it takes (`GET /sync/capabilities`, or a `413`),
-and the project may say less.
+and the project may say less. Nor are there default timings: how soon after a write, how often, and how
+long to wait after a failure are the project's to set, and a trigger left unset never fires. A server's
+`Retry-After` is honoured whether or not `backoff` is set.
 
 ## Reading and writing
 
@@ -93,7 +98,7 @@ await engine.remove('tasks', task.id)
 | `400`, `403`, `404`, `409` | a dead letter, with the errors: `retryDead(seq)`, `discardDead(seq)`, `exportDead()`; the row rolls back |
 | `401`                      | the queue pauses until `resume()` - after a fresh login                                                  |
 | `428`                      | the queue stops: the client sent a write without its etag, a bug                                         |
-| `5xx`, `429`, no answer    | kept, and sent again after a backoff - under the same key when no answer came, so it cannot run twice    |
+| `5xx`, `429`, no answer    | kept, and sent again on the next sync - under the same key when no answer came, so it cannot run twice   |
 
 A delete answered `404` is done. A row the feed deletes takes its queued updates to the dead letters
 (they can never land); a revoked scope takes its rows' writes there too. Nothing is dropped silently.
@@ -109,15 +114,55 @@ A delete answered `404` is done. A row the feed deletes takes its queued updates
 
 ## When it syncs
 
-`start()` syncs at once, then on `online`, on the page becoming visible (or `foreground`), a debounce
-after each local write, and on the interval while visible. One sync - push, pull, push - runs at a
-time across tabs, under one Web Lock; tabs hear each other's writes over `BroadcastChannel`. `sync()`
-syncs now. `stop()` and `close()` end it.
+`start()` syncs at once, then on `online`, on the page becoming visible (or `foreground`), and - when
+the project sets them - a `debounce` after each local write, on the `interval` while visible, and a
+`backoff` after a failure. One sync - push, pull, push - runs at a time across tabs, under one Web
+Lock; tabs hear each other's writes over `BroadcastChannel`. `sync()` syncs now. `stop()` and
+`close()` end it.
+
+## Going offline
+
+The app, or its user, decides when to go offline and when to come back; the engine only does it.
+
+```typescript
+await engine.syncFully({ onProgress: setProgress }) // leave with everything pushed and fresh data
+await engine.goOffline()
+// ...reads and writes work as ever; writes queue
+await engine.goOnline()
+await engine.syncFully({ onProgress: setProgress })
+```
+
+- `goOffline()` stops every network call: no pull, no push, no trigger. It isn't `stop()`: reads and
+  writes go on, and the queue fills. It holds across restarts and in every tab, and resolves once no
+  sync is in flight. `status().mode` is `'offline'` meanwhile, beside `online`, which still means
+  whether the last request reached the server.
+- While offline, `sync()` and `syncFully()` reject with `OfflineModeError`.
+- `goOnline()` lets the triggers sync again. It starts no sync itself: run `syncFully()` for that, to
+  show the progress screen.
+- `syncFully({ onProgress, signal })` pushes everything queued when it was called and pulls until the
+  feed has nothing more. Writes made while it runs wait for the next sync, so it always ends. It
+  resolves with `{ conflicts, dead }`, which don't fail it, and rejects with `SyncUnreachableError`
+  (out of reach, `429`, `5xx`; `retryAfter` in seconds), `SyncPausedError` (`reason`), or the signal's
+  reason once it aborts - checked between requests.
+
+Progress is data, reported by every sync, whatever started it:
+
+```typescript
+type SyncProgress =
+  | { phase: 'push'; sent: number; total: number }
+  | { phase: 'pull'; received: number; remaining: number | null }
+  | { phase: 'snapshot'; scope: string | null; model: string | null; received: number; total: number | null }
+```
+
+`total` for a push is what is left to send plus what was sent, so it grows when a write is sent again.
+`remaining` and a snapshot's `total` come from the server, and are `null` from one that doesn't send
+them; `remaining` is an estimate that never undercounts. `engine.progress()` is the running sync's,
+`null` at rest, and `subscribeProgress` hears each change.
 
 ## Status, the queue, logging out
 
 ```typescript
-engine.status() // { online, syncing, paused, lastSyncedAt, pending, conflicts, dead, loading, error }
+engine.status() // { mode, online, syncing, paused, lastSyncedAt, pending, conflicts, dead, loading, error }
 await engine.pendingCounts()
 await engine.pendingEntries({ state: 'conflict', offset: 0, limit: 50 })
 await engine.deadLetters({ offset: 0, limit: 50 })
@@ -138,7 +183,8 @@ const { create, update, remove } = useSyncedWrite(engine)
 const { counts, conflicts, dead, takeTheirs, keepMine, retryDead, discardDead, exportDead } = usePendingWrites(engine, {
   limit: 20,
 })
-const { online, syncing, paused } = useSyncStatus(engine)
+const { mode, online, syncing, paused } = useSyncStatus(engine)
+const progress = useSyncProgress(engine) // null while no sync runs
 ```
 
 `useLiveQuery` reruns on any change to the local store - this tab's, another's, a pull's - or only on

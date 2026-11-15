@@ -39,11 +39,14 @@ describe('@isikk/core/sync', () => {
     expect(Object.keys(sync).sort()).toEqual(
       [
         'AFTER_PREFIX',
+        'OfflineModeError',
         'PROTOCOL_HEADER',
         'PROTOCOL_VERSION',
         'PendingWritesError',
         'RowExistsError',
         'RowNotFoundError',
+        'SyncPausedError',
+        'SyncUnreachableError',
         'TransactionInactiveError',
         'batchPush',
         'createIndexedDBAdapter',
