@@ -398,6 +398,17 @@ describe('progress', () => {
     ])
   })
 
+  it('reports an end it holds no snapshot for as the feed, not a snapshot', async () => {
+    const server = new FakeServer()
+    const fetch = scripted(server, [
+      { changes: [{ op: 'snapshot_end', scope: null, model: 'tasks' }], cursor: 'c1', has_more: false, remaining: 0 },
+    ])
+    const engine = await client(server, U1, { fetch })
+    const seen: SyncProgress[] = []
+    await engine.syncFully({ onProgress: (p) => seen.push(p) })
+    expect(seen).toEqual([{ phase: 'pull', received: 0, remaining: 0 }])
+  })
+
   it('carries on counting a snapshot a 0.22 client began, which stored no counts', async () => {
     const server = new FakeServer()
     const adapter = createMemoryAdapter()
