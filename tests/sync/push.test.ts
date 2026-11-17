@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { PushEntry } from '../../src/sync/protocol'
 import type { PushContext } from '../../src/sync/push'
-import { batchPush, restPush } from '../../src/sync/push'
+import { batchPush, createRestPush, restPush } from '../../src/sync/push'
 import { MODELS } from './support/server'
 
 type Call = { url: string; method: string; headers: Record<string, string>; body: string | undefined }
@@ -123,6 +123,28 @@ describe('restPush', () => {
         { key: 'k1', status: 400, errors: { title: ['required'] } },
       ],
     })
+  })
+
+  it("takes a 412's token from its current row ahead of the header", async () => {
+    const { context } = contextFor(json(412, { current: { id: 't1', etag: '"b"' } }, { ETag: '"h"' }))
+    expect(await restPush([patch], context)).toStrictEqual({
+      results: [{ key: 'k2', status: 412, etag: '"b"', current: { id: 't1', etag: '"b"' } }],
+    })
+  })
+
+  // Another server's 412: the row as the whole body, its version in a header of its own.
+  it("reads a 412 through the project's conflictOf", async () => {
+    const { context } = contextFor(json(412, { id: 't1', done: true }, { 'X-Version': '7' }))
+    const push = createRestPush({
+      conflictOf: (body, response) => ({ current: body, etag: response?.headers.get('X-Version') ?? null }),
+    })
+    expect(await push([patch], context)).toStrictEqual({
+      results: [{ key: 'k2', status: 412, etag: '7', current: { id: 't1', done: true } }],
+    })
+    const none = contextFor(json(412, { id: 't1' }))
+    expect(
+      await createRestPush({ conflictOf: () => ({ current: undefined, etag: null }) })([patch], none.context)
+    ).toStrictEqual({ results: [{ key: 'k2', status: 412 }] })
   })
 
   it('reads a 412 with no body as no current row', async () => {

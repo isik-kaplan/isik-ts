@@ -27,6 +27,11 @@ export interface GenerateOptions {
    * renames a member, `{ users: 'people' }` a resource. A name that does not exist is an error.
    */
   renames?: Record<string, string>
+  /**
+   * The response header the client reports as `onRequest`'s `correlationId`: the one the server
+   * echoes the request's correlation id in. Default `'X-Request-Id'`, isik's.
+   */
+  correlationHeader?: string
   /** Named in the generated file's header. */
   source?: string
 }
@@ -45,7 +50,12 @@ export function generateClient(document: unknown, options: GenerateOptions = {})
   }
   const model = renamed(modelOf(document, options.stripPrefix, options.include, options.plurals), options.renames ?? {})
   return {
-    code: emit(model, { types: options.types ?? './schema', keys, source: options.source }),
+    code: emit(model, {
+      types: options.types ?? './schema',
+      keys,
+      correlationHeader: options.correlationHeader ?? 'X-Request-Id',
+      source: options.source,
+    }),
     warnings: model.warnings,
   }
 }

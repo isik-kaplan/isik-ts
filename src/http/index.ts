@@ -113,6 +113,28 @@ export function isPreconditionFailed(response: { status: number } | null | undef
   return response?.status === 412
 }
 
+/** What a 412 says: the version the server holds now, and the token that names it. */
+export type CurrentVersion = {
+  // The server's representation, as a retrieve would answer it; `undefined` when the 412 carries none.
+  current: unknown
+  // The token naming it, for the next `If-Match`; `null` when there is none to read.
+  etag: string | null
+}
+
+/** Reads a 412 into the server's current version. A server that answers 412 its own way passes its own. */
+export type ConflictReader = (body: unknown, response: { headers: Headers } | null | undefined) => CurrentVersion
+
+/**
+ * isik's 412: `{current: <the row as a retrieve answers it>}`. The token is `current.etag`, else the
+ * `ETag` header. The body comes first: it is never weakened, and a cross-origin page can read it
+ * without `Access-Control-Expose-Headers`.
+ */
+export const readConflict: ConflictReader = (body, response) => {
+  const current = body ? (body as { current?: unknown }).current : undefined
+  const field = current ? (current as { etag?: unknown }).etag : undefined
+  return { current, etag: typeof field === 'string' && field !== '' ? field : etagOf(response) }
+}
+
 /** A 428: the server needs an `If-Match` and the write sent none. */
 export function isPreconditionRequired(response: { status: number } | null | undefined): boolean {
   return response?.status === 428

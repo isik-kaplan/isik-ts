@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { allauthEnvelope } from '../../src/allauth'
+import { detailOf, toFormErrors } from '../../src/drf'
 import type {
   APIResult,
   Reporter,
@@ -1072,6 +1073,17 @@ describe('optimistic concurrency', () => {
       expect(onStale).toHaveBeenCalledExactlyOnceWith({ current: undefined, etag: null })
     })
 
+    // Another server's 412: the row as the whole body, its version in a header of its own.
+    it("reads the 412 through the hook's conflictOf", async () => {
+      const onStale = vi.fn()
+      const conflictOf = vi.fn((body: unknown, res: { headers: Headers } | null | undefined) => ({
+        current: body,
+        etag: res?.headers.get('X-Version') ?? null,
+      }))
+      await submitOnce(stale({ name: 'Grace' }, { 'X-Version': '7' }), { onStale }, { conflictOf })
+      expect(onStale).toHaveBeenCalledExactlyOnceWith({ current: { name: 'Grace' }, etag: '7' })
+    })
+
     it("reports the hook's stale message, and prefers the call's", async () => {
       const hookOnly = await submitOnce(stale(), {}, { stale: () => 'hook' })
       expect(hookOnly.report.error).toHaveBeenCalledExactlyOnceWith('hook')
@@ -1393,8 +1405,8 @@ describe('optimistic concurrency', () => {
 describe('onRefusal', () => {
   async function submitRefused(
     result: APIResult,
-    options: { onRefusal?: (result: APIResult) => boolean | void },
-    bound?: (result: APIResult) => boolean | void
+    options: Partial<Parameters<ReturnType<typeof useAPISubmit>['submit']>[1]>,
+    bound?: NonNullable<Parameters<typeof useAPISubmit>[1]>['onRefusal']
   ) {
     const report = reporter()
     const { result: hook } = renderHook(() => useAPISubmit(report, { onRefusal: bound }))
@@ -1410,9 +1422,38 @@ describe('onRefusal', () => {
     const refused = refusal(401, { status: 401, data: { flows: [{ id: 'reauthenticate' }] } })
     const { ok, report, hook } = await submitRefused(refused, { onRefusal })
     expect(ok).toBe(false)
-    expect(onRefusal).toHaveBeenCalledExactlyOnceWith(refused)
+    expect(onRefusal).toHaveBeenCalledExactlyOnceWith(refused, { codes: undefined })
     expect(report.error).not.toHaveBeenCalled()
     expect(hook.current.isSubmitting).toBe(false)
+  })
+
+  it('hands it the codes the envelope read, and the form still gets the messages when it answers false', async () => {
+    const onRefusal = vi.fn(() => false)
+    const setFormErrors = vi.fn()
+    const body = { kinds: [{ kind: [{ message: 'Not sent.', code: 'kind_not_sent_on_webhook' }] }] }
+    await submitRefused(refusal(400, body), { onRefusal, setFormErrors })
+    expect(onRefusal).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+      codes: { 'kinds.0.kind': ['kind_not_sent_on_webhook'] },
+    })
+    expect(setFormErrors).toHaveBeenCalledExactlyOnceWith({ 'kinds.0.kind': ['Not sent.'] })
+  })
+
+  it('hands the hook-bound one the codes too, and none from an envelope without codesOf', async () => {
+    const body = { name: [{ message: 'Taken.', code: 'unique' }] }
+    const bound = vi.fn(() => false)
+    await submitRefused(refusal(400, body), {}, bound)
+    expect(bound).toHaveBeenCalledExactlyOnceWith(expect.anything(), { codes: { name: ['unique'] } })
+
+    const plain = vi.fn(() => false)
+    const report = reporter()
+    const { result: hook } = renderHook(() =>
+      useAPISubmit(report, { envelope: { toFormErrors, detailOf }, onRefusal: plain })
+    )
+    await act(async () => {
+      await hook.current.submit(async () => refusal(400, body), { failure: 'Nope.' })
+    })
+    expect(plain).toHaveBeenCalledExactlyOnceWith(expect.anything(), { codes: undefined })
+    expect(report.error).toHaveBeenCalledExactlyOnceWith('Taken.')
   })
 
   it('goes on to report when it answers false or nothing', async () => {

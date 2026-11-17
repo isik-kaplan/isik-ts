@@ -1,4 +1,4 @@
-import type { FormErrors } from '../drf'
+import type { FormErrorCodes, FormErrors } from '../drf'
 
 /** One entry of allauth's `errors` list. `param` names the field; without one it is about the request. */
 export type AllauthError = { message: string; code?: string; param?: string }
@@ -39,6 +39,23 @@ export function toFormErrors(body: unknown): FormErrors | undefined {
 }
 
 /**
+ * The codes of allauth's refusal - `email_taken`, `invalid_password` - keyed as `toFormErrors` keys
+ * their messages, for a page that branches on one. An entry without a string `code` adds none.
+ * `undefined` when there is none.
+ */
+export function codesOf(body: unknown): FormErrorCodes | undefined {
+  const errors = errorsOf(body)
+  if (errors === undefined) return undefined
+  const codes = new Map<string, string[]>()
+  for (const { code, param } of errors) {
+    if (typeof code !== 'string') continue
+    const field = typeof param === 'string' ? param : 'non_field_errors'
+    codes.set(field, [...(codes.get(field) ?? []), code])
+  }
+  return codes.size > 0 ? Object.fromEntries(codes) : undefined
+}
+
+/**
  * Every message allauth sent, as one line - a refusal not about a field, a 409 among them, carries
  * the sentence a person should read in the same list a 400 uses. A 429 often carries none, which is
  * why `useAPISubmit` reports its own `throttled` message for one rather than reading the body.
@@ -49,7 +66,7 @@ export function detailOf(body: unknown): string | undefined {
 }
 
 /** For `useAPISubmit`, `useValidatedFormState` and `createSubmitHooks` on an allauth endpoint. */
-export const allauthEnvelope = { toFormErrors, detailOf }
+export const allauthEnvelope = { toFormErrors, detailOf, codesOf }
 
 /** A flow allauth lists in a 401: what the session still owes, or may start. */
 export type AllauthFlow = { id: string; is_pending?: boolean; types?: string[]; provider?: unknown }

@@ -34,15 +34,16 @@ await api.users.updateMe(body, { etag, idempotencyKey })
 
 ## Options
 
-| option                    | default           |                                                                              |
-| ------------------------- | ----------------- | ---------------------------------------------------------------------------- |
-| `-o, --out <file>`        | required          | where to write the client                                                    |
-| `--types <path>`          | `./schema`        | the openapi-typescript output, as the client imports it                      |
-| `--keys <rule>`           | `every-write`     | which writes must name their `Idempotency-Key`, below                        |
-| `--strip-prefix <prefix>` | the shared prefix | taken off every path before its resources are read                           |
-| `--include <prefix>`      | every path        | only the paths that start with this: one client of several a document serves |
-| `--rename <from>=<to>`    |                   | the project's own name for a generated one, repeatable (below)               |
-| `--no-plurals`            | plurals on        | keep collection actions that GET a list singular                             |
+| option                        | default           |                                                                              |
+| ----------------------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `-o, --out <file>`            | required          | where to write the client                                                    |
+| `--types <path>`              | `./schema`        | the openapi-typescript output, as the client imports it                      |
+| `--keys <rule>`               | `every-write`     | which writes must name their `Idempotency-Key`, below                        |
+| `--strip-prefix <prefix>`     | the shared prefix | taken off every path before its resources are read                           |
+| `--include <prefix>`          | every path        | only the paths that start with this: one client of several a document serves |
+| `--correlation-header <name>` | `X-Request-Id`    | the response header `onRequest` reports as `correlationId`                   |
+| `--rename <from>=<to>`        |                   | the project's own name for a generated one, repeatable (below)               |
+| `--no-plurals`                | plurals on        | keep collection actions that GET a list singular                             |
 
 The input is YAML or JSON (`.json`). Name clashes, and what each name became instead, are printed
 as warnings.

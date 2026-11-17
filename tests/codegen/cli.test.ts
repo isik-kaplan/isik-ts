@@ -51,6 +51,9 @@ describe('isikk-gen-client', () => {
     expect(main(['api.json', '-o', 'c.ts', '--include', '/v0/a/get/', '--strip-prefix', '/v0/'], run.fake)).toBe(0)
     expect(run.written['c.ts']).toContain('    aGet: {')
     expect(run.written['c.ts']).not.toContain('{id}')
+    expect(main(['api.json', '-o', 'h.ts', '--correlation-header', 'X-Correlation-ID'], run.fake)).toBe(0)
+    expect(run.written['h.ts']).toContain('response.headers.get("X-Correlation-ID")')
+    expect(run.written['b.ts']).toContain('response.headers.get("X-Request-Id")')
     expect(
       main(['api.json', '-o', 'r.ts', '--rename', 'root.collectionGet=all', '--rename', 'root=items'], run.fake)
     ).toBe(0)

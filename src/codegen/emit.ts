@@ -227,7 +227,7 @@ function keyOf(rule: KeyRule): string {
   ].join('\n')
 }
 
-const CALL = String.raw`
+const callOf = (correlationHeader: string) => String.raw`
   async function call(method: string, path: string, init: Init, mode: KeyMode): Promise<never> {
     const headers = new Headers(typeof options.headers === 'function' ? options.headers() : options.headers)
     for (const [name, value] of Object.entries(init.headers ?? {})) headers.set(name, value)
@@ -254,7 +254,7 @@ const CALL = String.raw`
       throw error
     }
     const payload = await read(response)
-    const correlationId = response.headers.get('X-Request-Id')
+    const correlationId = response.headers.get(${str(correlationHeader)})
     tell({ phase: 'end', id, method, path, url, status: response.status, ok: response.ok, ms: Date.now() - started, correlationId })
     return (response.ok ? { data: payload, response } : { error: payload ?? '', response }) as never
   }
@@ -271,11 +271,13 @@ export interface EmitOptions {
   /** Where the openapi-typescript output is, as the client file imports it. */
   types: string
   keys: KeyRule
+  /** The response header the client reports as `correlationId`. */
+  correlationHeader: string
   /** Shown in the header: where the document came from. */
   source?: string
 }
 
-export function emit(model: Model, { types, keys, source }: EmitOptions): string {
+export function emit(model: Model, { types, keys, correlationHeader, source }: EmitOptions): string {
   const resources = model.resources.map(
     (resource) =>
       `    ${prop(resource.name)}: {\n${resource.members.map((member) => memberOf(resource, member, keys, model.prefixParameters)).join('\n')}\n    },`
@@ -298,10 +300,12 @@ export function emit(model: Model, { types, keys, source }: EmitOptions): string
     '  let requests = 0',
     ...(keys === 'minted' ? ['  const generateKey = options.generateKey'] : []),
     keyOf(keys),
-    CALL.trimEnd().replace(
-      'PATH_PARAMS',
-      model.prefixParameters.length === 0 ? 'init.path ?? {}' : '{ ...options.pathParams, ...init.path }'
-    ),
+    callOf(correlationHeader)
+      .trimEnd()
+      .replace(
+        'PATH_PARAMS',
+        model.prefixParameters.length === 0 ? 'init.path ?? {}' : '{ ...options.pathParams, ...init.path }'
+      ),
     '',
     '  return {',
     ...resources,

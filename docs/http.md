@@ -72,6 +72,20 @@ registry URL, not a path.
 
 Whether a response is a 412 (the `If-Match` sent names a version someone else has replaced) or a 428 (the server needs an `If-Match` and none was sent). Both answer `false` with no response.
 
+## readConflict
+
+Reads a 412 as isik writes it - `{current: <the row as a retrieve answers it>}` - into `{ current, etag }`: the server's version, and the token naming it, from `current.etag`, else the `ETag` header, else `null`. `current` is `undefined` when the body carries none.
+
+It is the default `ConflictReader`, `(body, response) => { current, etag }`, for the submit hooks' `conflictOf` ([hooks.md](hooks.md#useapisubmit)) and sync's `createRestPush` ([sync.md](sync.md)). A server that answers 412 its own way passes its own:
+
+```typescript
+// the row as the whole body, its version in a header
+const conflictOf: ConflictReader = (body, response) => ({
+  current: body,
+  etag: response?.headers.get('X-Version') ?? null,
+})
+```
+
 ## createDjangoFetch
 
 A `fetch` for a Django API, to hand a typed client such as openapi-fetch. It sends the CSRF token in the header Django reads, forwards the session cookie from the server, and keeps the headers of a `Request` it is given - openapi-fetch hands its fetch a `Request`, whose own headers a plain `fetch(request, init)` would replace with init's.

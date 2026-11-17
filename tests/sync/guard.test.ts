@@ -53,6 +53,7 @@ describe('@isikk/core/sync', () => {
         'createMemoryAdapter',
         'createSQLiteAdapter',
         'createMutex',
+        'createRestPush',
         'createTxGuard',
         'deepEqual',
         'encodeKey',

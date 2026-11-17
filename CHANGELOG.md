@@ -14,6 +14,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   strings as from the plain shape, and the new `codesOf(body)` gives each field's codes under the
   same keys (`FormErrorCodes`), for a page to branch on. Before this, those messages were dropped
   and the hooks reported the generic `failure`.
+- The submit hooks hand `onRefusal` a second argument, `{ codes }`, read by the envelope's new
+  optional `codesOf`. `drfEnvelope` and `allauthEnvelope` both carry one; `codesOf` in
+  `@isikk/core/allauth` keys allauth's codes by `param`.
+- A 412 is read by a `ConflictReader`, `(body, response) => { current, etag }`, so a server that
+  answers 412 its own way can be read: `conflictOf` on the submit hooks (and `createSubmitHooks`),
+  and `createRestPush({ conflictOf })` in `@isikk/core/sync`. The default, `readConflict` in
+  `@isikk/core`, is isik's `{current}` as before.
+- `isikk-gen-client --correlation-header <name>` (`correlationHeader`) names the response header a
+  generated client reports as `correlationId`. Default `X-Request-Id`.
+
+### Changed
+
+- `restPush` takes a 412's token from `current.etag` ahead of the `ETag` header, as the submit
+  hooks always have.
+- A regenerated client quotes its `X-Request-Id` lookup with double quotes; nothing else changes.
 
 ## [0.25.0] - 2026-11-15
 

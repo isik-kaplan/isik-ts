@@ -166,7 +166,7 @@ export function createClient(options: ClientOptions = {}) {
       throw error
     }
     const payload = await read(response)
-    const correlationId = response.headers.get('X-Request-Id')
+    const correlationId = response.headers.get("X-Request-Id")
     tell({ phase: 'end', id, method, path, url, status: response.status, ok: response.ok, ms: Date.now() - started, correlationId })
     return (response.ok ? { data: payload, response } : { error: payload ?? '', response }) as never
   }

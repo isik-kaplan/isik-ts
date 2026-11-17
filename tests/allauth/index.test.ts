@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   allauthEnvelope,
+  codesOf,
   detailOf,
   errorsOf,
   hasPendingVerifyEmail,
@@ -12,6 +13,32 @@ import {
 } from '../../src/allauth'
 
 const refusal = (...errors: unknown[]) => ({ status: 400, errors })
+
+describe('codesOf', () => {
+  it("keys allauth's codes as toFormErrors keys their messages", () => {
+    expect(
+      codesOf({
+        status: 400,
+        errors: [
+          { message: 'Taken.', code: 'email_taken', param: 'email' },
+          { message: 'Too common.', code: 'password_too_common', param: 'password' },
+          { message: 'Short.', code: 'password_too_short', param: 'password' },
+          { message: 'Try later.', code: 'too_many_login_attempts' },
+          { message: 'No code.', param: 'email' },
+        ],
+      })
+    ).toEqual({
+      email: ['email_taken'],
+      password: ['password_too_common', 'password_too_short'],
+      non_field_errors: ['too_many_login_attempts'],
+    })
+  })
+
+  it('answers undefined when no entry has a code', () => {
+    expect(codesOf({ errors: [{ message: 'No code.' }] })).toBeUndefined()
+    expect(codesOf(undefined)).toBeUndefined()
+  })
+})
 
 describe('toFormErrors', () => {
   it('files each message under its param', () => {
@@ -83,8 +110,8 @@ describe('detailOf', () => {
 })
 
 describe('allauthEnvelope', () => {
-  it('is the two readers', () => {
-    expect(allauthEnvelope).toEqual({ toFormErrors, detailOf })
+  it('is the three readers', () => {
+    expect(allauthEnvelope).toEqual({ toFormErrors, detailOf, codesOf })
   })
 })
 

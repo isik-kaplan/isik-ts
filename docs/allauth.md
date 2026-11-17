@@ -41,6 +41,19 @@ toFormErrors({ status: 400, errors: [{ message: 'Too short.', code: 'password_to
 - Entries without a string `message` are skipped.
 - Returns `undefined` when there is nothing to read - including allauth's 401 "pending flow" body, which carries `data` and `meta` rather than `errors`. Whether that 401 is a success is the caller's to say, through `isSuccess`.
 
+## codesOf
+
+allauth's codes, keyed as `toFormErrors` keys their messages, for a page that branches on one. `allauthEnvelope` carries it, so the submit hooks hand them to `onRefusal`.
+
+```typescript
+import { codesOf } from '@isikk/core/allauth'
+
+codesOf({ status: 400, errors: [{ message: 'Taken.', code: 'email_taken', param: 'email' }] })
+// { email: ['email_taken'] }
+```
+
+An entry without a string `code` adds none; `undefined` when there are none.
+
 ## detailOf
 
 Every message in the refusal, as one line. allauth writes the sentence a person should read for a refusal not about a field - a wrong password, a 409 - in the same `errors` list a 400 uses, so this reads that list rather than a `detail` key.

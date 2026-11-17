@@ -67,6 +67,10 @@ and the project may say less. Nor are there default timings: how soon after a wr
 long to wait after a failure are the project's to set, and a trigger left unset never fires. A server's
 `Retry-After` is honoured whether or not `backoff` is set.
 
+`restPush` reads a REST 412 as isik writes it, `{current}` with its token in `current.etag` or the
+`ETag` header. For a server that answers another way, `createRestPush({ conflictOf })` takes a
+[`ConflictReader`](http.md#readconflict) of its own: `push: createRestPush({ conflictOf })`.
+
 ## Reading and writing
 
 ```typescript

@@ -49,12 +49,12 @@ codesOf({ kinds: [{ kind: [{ message: "parcel_routed isn't sent to webhooks.", c
 // { 'kinds.0.kind': ['kind_not_sent_on_webhook'] }
 ```
 
-A message sent as a bare string has no code, so a field whose messages are all strings has no entry, and `codesOf` returns `undefined` when no message carries a code. In a submit hook, read it in `onRefusal` and return `false`, so the form still gets its messages:
+A message sent as a bare string has no code, so a field whose messages are all strings has no entry, and `codesOf` returns `undefined` when no message carries a code. The submit hooks read it through their envelope and hand the codes to `onRefusal` ([hooks.md](hooks.md#useapisubmit)); return `false` there and the form still gets its messages:
 
 ```typescript
 useAPISubmit(toast, {
-  onRefusal: (result) => {
-    setInert(codesOf(result.error)?.['kinds.0.kind']?.includes('kind_inert_on_webhook') ?? false)
+  onRefusal: (result, { codes }) => {
+    setInert(codes?.['kinds.0.kind']?.includes('kind_inert_on_webhook') ?? false)
     return false
   },
 })

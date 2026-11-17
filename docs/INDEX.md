@@ -18,7 +18,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 - [cookies.md](cookies.md) - `getCookie` (also from a `Cookie` header), `setCookie`, `removeCookie` (browser, via `document.cookie`)
 - [console.md](console.md) - `createConsoleDebugSwitch`
 - [colors.md](colors.md) - `generateTailwindColorScale`, `generateNamedTailwindColorScale`, `hexToHSLTriplet`
-- [http.md](http.md) - `createDjangoFetch`, `nameFetchFailures`, `retryAfterOf`, `etagOf`, `ifMatch`, `anyVersion`, `idempotencyKey`, `isPreconditionFailed`, `isPreconditionRequired`, and the `Versioned` / `Keyed` / `IdempotencyKey` brands
+- [http.md](http.md) - `createDjangoFetch`, `nameFetchFailures`, `retryAfterOf`, `etagOf`, `ifMatch`, `anyVersion`, `idempotencyKey`, `isPreconditionFailed`, `isPreconditionRequired`, `readConflict`, and the `Versioned` / `Keyed` / `IdempotencyKey` brands
 
 ## React (`@isikk/core/hooks`)
 

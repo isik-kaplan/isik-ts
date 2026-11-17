@@ -7,6 +7,7 @@ import {
   ifMatch,
   isPreconditionFailed,
   isPreconditionRequired,
+  readConflict,
   retryAfterOf,
 } from '../../src/http'
 
@@ -94,6 +95,32 @@ describe('etagOf', () => {
     ['no header', { headers: new Headers() }],
   ])('answers null for %s', (_, response) => {
     expect(etagOf(response)).toBeNull()
+  })
+})
+
+describe('readConflict', () => {
+  const header = { headers: new Headers({ ETag: '"h"' }) }
+
+  it("reads isik's 412: the body's current, and its etag ahead of the header", () => {
+    expect(readConflict({ current: { id: 1, etag: '"b"' } }, header)).toEqual({
+      current: { id: 1, etag: '"b"' },
+      etag: '"b"',
+    })
+  })
+
+  it.each([
+    ['current has no etag', { current: { id: 1 } }, { id: 1 }],
+    ['its etag is empty', { current: { etag: '' } }, { etag: '' }],
+    ['its etag is not a string', { current: { etag: 3 } }, { etag: 3 }],
+    ['there is no current', { detail: 'x' }, undefined],
+    ['there is no body', undefined, undefined],
+    ['the body is null', null, undefined],
+  ])('falls back to the header when %s', (_, body, current) => {
+    expect(readConflict(body, header)).toEqual({ current, etag: '"h"' })
+  })
+
+  it('answers a null etag with neither', () => {
+    expect(readConflict({}, undefined)).toEqual({ current: undefined, etag: null })
   })
 })
 

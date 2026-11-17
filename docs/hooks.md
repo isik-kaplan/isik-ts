@@ -166,13 +166,14 @@ function RevokeButton({ id }: { id: string }) {
 - **A 412** reports the `stale` message and calls `onStale({ current, etag })` - see [Optimistic concurrency](#optimistic-concurrency). **A 428** reports `failure` and throws `PreconditionRequiredError`.
 - **Any other 4xx** reports DRF's `detail` sentence. **A 5xx, or no response at all,** reports `failure` - that body is not written for a person, and often is not JSON.
 - Anything unreadable falls back to `failure`, so another server's errors read as a failure, not as none.
-- **`onRefusal(result)`** is called with any refusal before anything is reported. Returning true means the caller handled it - a 401 that starts reauthentication, say - and `submit` resolves to `false` with nothing reported, 429s, 412s and 428s included. A call's own replaces the one bound on the hook. The rule is the caller's: allauth's `needsReauthentication` (see [allauth.md](allauth.md#pending-flows)) reads the 401.
+- **`onRefusal(result, { codes })`** is called with any refusal before anything is reported. `codes` is the envelope's `codesOf(body)` - the codes the server named its errors by, keyed as the form errors are, or `undefined` - for a page that branches on a code rather than a translated message; answer `false` and the form still gets its messages. Returning true means the caller handled it - a 401 that starts reauthentication, say - and `submit` resolves to `false` with nothing reported, 429s, 412s and 428s included. A call's own replaces the one bound on the hook. The rule is the caller's: allauth's `needsReauthentication` (see [allauth.md](allauth.md#pending-flows)) reads the 401.
 - A `call` that throws releases `isSubmitting` and rethrows.
 - Refreshing or navigating stays at the call site, through `onSuccess` - reaching for a router inside would make every caller a router consumer.
 - **A form that navigates on success passes `leavesOnSuccess: true`.** `isSubmitting` then stays set after the success, and every later submit is refused, because an app-router navigation is a fetch rather than a frame and the old screen stays mounted - and clickable - while it runs. The price is that a navigation that is cancelled or fails leaves the form disabled until a reload: a dead button is recoverable, a second write is not.
 - A submit made while another is in flight is refused: it resolves to `false` and its call is never made. `disabled={isSubmitting}` only takes effect once React commits, so this is what stops two clicks in one frame.
-- The second argument, `{ envelope, throttled, stale, onRefusal }`, is optional.
-- `envelope`, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body) }` - reads another server's refusals. `useAPISubmit(toast, { envelope: allauthEnvelope })` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, a 429 not at all, another 4xx for its sentence.
+- The second argument, `{ envelope, throttled, stale, conflictOf, onRefusal }`, is optional.
+- `envelope`, an `ErrorEnvelope` - `{ toFormErrors(body), detailOf(body), codesOf?(body) }` - reads another server's refusals. Without `codesOf`, `onRefusal` gets no codes. `useAPISubmit(toast, { envelope: allauthEnvelope })` reads django-allauth's headless API (see [allauth.md](allauth.md)). The status rules above stay the same: a 400 is read for fields, a 429 not at all, another 4xx for its sentence.
+- `conflictOf`, a `ConflictReader` - `(body, response) => { current, etag }` - reads a 412. The default is isik's, [`readConflict`](http.md#readconflict): the body's `current`, its token from `current.etag`, else the `ETag` header.
 - `throttled`, `(seconds: number | null) => string`, is what a 429 reports. `seconds` is the response's `Retry-After` read by [`retryAfterOf`](http.md#retryafterof), or `null` when it named no wait - allauth's never does. It is called as the 429 is reported, so it can call i18next's `t()` in the current language. A call overrides it with its own `throttled` submit option. The default is English: `Too many requests. Try again in 30 seconds.`, or `Too many requests. Wait a moment and try again.` with no wait.
 
   A 429 is not read from the body because three different things answer one - a DRF throttle with an English `detail` that cannot be translated, allauth with often no message at all, a proxy with its own - and they all mean the same thing to the person.
@@ -216,7 +217,7 @@ submit((headers) => api.DELETE('/notes/{id}/', { params: { path: { id } }, heade
 
 - `etag` on the submit options is sent as `If-Match`, verbatim, and brands the call's headers `Versioned` (see above). `'*'` overwrites whatever is there. Without one, or with `null`, the call is handed `{}`.
 - Read the token from the item's `etag` body field where the server has one. It is never weakened by compression, and a cross-origin page can read it without `Access-Control-Expose-Headers: ETag`. `etagOf(response)` in [http.md](http.md) reads the header.
-- **A 412** reports `stale` - never the body's English `detail`, never through `setFormErrors` - and hands `onStale` the body's `current` (the server's version) and its token: `current.etag`, else the `ETag` header, else `null`. `submit` resolves to `false`.
+- **A 412** reports `stale` - never the body's English `detail`, never through `setFormErrors` - and hands `onStale` the server's version and its token, as the hook's `conflictOf` reads them - by default the body's `current`, and `current.etag`, else the `ETag` header, else `null`. `submit` resolves to `false`.
 - **A 428** means the write was sent without a token the server needs. Only the code can fix that, so after reporting `failure` it throws `PreconditionRequiredError`, with the form unlocked, for an error boundary or error tracking to catch.
 - Cross-origin, the API has to allow the header in and the token out: `If-Match` in django-cors-headers' `CORS_ALLOW_HEADERS`, and `ETag` in `CORS_EXPOSE_HEADERS` if the header is read. Without them every cross-origin write fails.
 
@@ -302,7 +303,7 @@ import { toast } from 'sonner'
 export const { useAPISubmit, useValidatedFormState } = createSubmitHooks(toast)
 ```
 
-The returned hooks - `useAPISubmit`, `useValidatedFormState` and `useVersionedFormState` - take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled, stale, onRefusal }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 and 412 messages once for every form:
+The returned hooks - `useAPISubmit`, `useValidatedFormState` and `useVersionedFormState` - take every argument the originals do except the reporter. An optional second argument, `{ envelope, throttled, stale, conflictOf, onRefusal }`, binds those the same way - `createSubmitHooks(toast, { envelope: allauthEnvelope })` for an app's allauth surfaces, and the 429 and 412 messages once for every form:
 
 ```tsx
 import i18next from 'i18next'

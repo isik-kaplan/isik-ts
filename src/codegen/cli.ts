@@ -12,6 +12,8 @@ const USAGE = `Usage: isikk-gen-client <openapi.yml|openapi.json> -o <client.ts>
   --strip-prefix <prefix>   taken off each path before naming its resource (default: the shared prefix)
   --include <prefix>        only the paths that start with this
   --no-plurals              keep collection actions that GET a list singular (users/history/ is history, not histories)
+  --correlation-header <name>
+                            the response header reported as correlationId (default X-Request-Id)
   --rename <from>=<to>      the project's own name for a generated one, repeatable:
                             users.collectionHistory=histories renames a member, users=people a resource
 `
@@ -52,7 +54,9 @@ export function main(argv: string[], io: Io = SYSTEM): number {
     }
     const name = arg === '-o' ? '--out' : arg
     if (
-      !['--out', '--types', '--keys', '--strip-prefix', '--include', '--rename'].includes(name) ||
+      !['--out', '--types', '--keys', '--strip-prefix', '--include', '--correlation-header', '--rename'].includes(
+        name
+      ) ||
       argv[i + 1] === undefined
     ) {
       io.err(
@@ -85,6 +89,7 @@ export function main(argv: string[], io: Io = SYSTEM): number {
       keys: flags['--keys'] as GenerateOptions['keys'],
       stripPrefix: flags['--strip-prefix'],
       include: flags['--include'],
+      correlationHeader: flags['--correlation-header'],
       plurals,
       renames,
       source: basename(input),

@@ -1,4 +1,4 @@
-import { retryAfterOf } from '../http'
+import { type ConflictReader, readConflict, retryAfterOf } from '../http'
 import type { PushEntry, PushResult, Row, XSync } from './protocol'
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from './protocol'
 
@@ -51,11 +51,24 @@ export const batchPush: PushStrategy = async (entries, context) => {
   return { results: ((await bodyOf(response)) as { results: PushResult[] }).results }
 }
 
+/** How `createRestPush` reads the server's REST answers. */
+export interface RestPushOptions {
+  /** How a 412 is read into the server's current row and its token. Default: isik's, `readConflict`. */
+  conflictOf?: ConflictReader
+}
+
 /**
  * Each entry as its own REST request, one after another, for a server without `/sync/push`. A 429 or a
  * protocol refusal stops the run; what ran before it keeps its results.
  */
-export const restPush: PushStrategy = async (entries, context) => {
+export function createRestPush({ conflictOf = readConflict }: RestPushOptions = {}): PushStrategy {
+  return (entries, context) => pushEach(entries, context, conflictOf)
+}
+
+/** `createRestPush()`: each entry as its own REST request, reading a 412 as isik writes it. */
+export const restPush: PushStrategy = createRestPush()
+
+async function pushEach(entries: PushEntry[], context: PushContext, conflictOf: ConflictReader): Promise<PushResponse> {
   const results: PushResult[] = []
   for (const entry of entries) {
     const resource = context.resources.get(entry.model)
@@ -80,8 +93,9 @@ export const restPush: PushStrategy = async (entries, context) => {
     if (response.ok) {
       if (payload !== undefined) result.data = payload as Row
     } else if (response.status === 412) {
-      const current = (payload as { current?: Row } | undefined)?.current
-      if (current !== undefined) result.current = current
+      const conflict = conflictOf(payload, response)
+      if (conflict.current !== undefined) result.current = conflict.current as Row
+      if (conflict.etag !== null) result.etag = conflict.etag
     } else {
       result.errors = payload
     }

@@ -1,8 +1,10 @@
 import type { ChangeEvent, DependencyList, DragEvent, EffectCallback } from 'react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
-import { type FormErrors, detailOf, messagesOf, toFormErrors } from '../drf'
+import { type FormErrorCodes, type FormErrors, codesOf, detailOf, messagesOf, toFormErrors } from '../drf'
 import {
+  type ConflictReader,
+  type CurrentVersion,
   type IdempotencyKey,
   type Keyed,
   type Versioned,
@@ -11,6 +13,7 @@ import {
   ifMatch,
   isPreconditionFailed,
   isPreconditionRequired,
+  readConflict,
   retryAfterOf,
 } from '../http'
 import { browserSupportsPasskeys } from '../webauthn'
@@ -558,16 +561,25 @@ export type Reporter = {
 }
 
 /**
- * How a server's refusal is read: its field errors, and the one sentence it wrote for a person.
- * `@isikk/core/drf`'s readers are the default; `allauthEnvelope` from `@isikk/core/allauth` reads
- * django-allauth's headless API, and anything with these two functions reads another server.
+ * How a server's refusal is read: its field errors, the one sentence it wrote for a person, and the
+ * codes it named them by. `@isikk/core/drf`'s readers are the default; `allauthEnvelope` from
+ * `@isikk/core/allauth` reads django-allauth's headless API, and anything with these functions
+ * reads another server. Without `codesOf`, `onRefusal` is handed no codes.
  */
 export type ErrorEnvelope = {
   toFormErrors: (body: unknown) => FormErrors | undefined
   detailOf: (body: unknown) => string | undefined
+  codesOf?: (body: unknown) => FormErrorCodes | undefined
 }
 
-const drfEnvelope: ErrorEnvelope = { toFormErrors, detailOf }
+const drfEnvelope: ErrorEnvelope = { toFormErrors, detailOf, codesOf }
+
+/** What `onRefusal` is told beside the result, read through the envelope. */
+export type Refusal = {
+  // The codes the server named its errors by, keyed as the form errors are - for a page that
+  // branches on one rather than on a translated message. `undefined` when it named none.
+  codes: FormErrorCodes | undefined
+}
 
 /**
  * What a person reads when the server answers 429, given how many seconds `Retry-After` asked for -
@@ -595,20 +607,17 @@ export type SubmitHooksOptions = {
   throttled?: ThrottledMessage
   // What a 412 reports. Default: an English sentence.
   stale?: StaleMessage
+  // How a 412 is read. Default: isik's, `readConflict` from `@isikk/core`.
+  conflictOf?: ConflictReader
   // A refusal, before anything is reported - see `APISubmitOptions.onRefusal`. A call's own replaces it.
-  onRefusal?: (result: APIResult) => boolean | void
+  onRefusal?: (result: APIResult, refusal: Refusal) => boolean | void
 }
 
 /** The headers a submit hands its call, to spread into the client's own: `If-Match`, and in a form the `Idempotency-Key`. */
 export type SubmitHeaders = Record<string, string>
 
-/** What a 412 says: the version the server holds now, and the token that names it. */
-export type StaleOutcome = {
-  // The 412 body's `current` - the server's representation, as a retrieve would answer it.
-  current: unknown
-  // Read from `current.etag` first, then the `ETag` header; `null` when neither is there.
-  etag: string | null
-}
+/** What a 412 says, as the hook's `conflictOf` read it: the server's current version and its token. */
+export type StaleOutcome = CurrentVersion
 
 /**
  * A 428: the server needs an `If-Match` and the write sent none, or sent `*` where the server takes
@@ -689,8 +698,8 @@ type APISubmitCommon<R extends APIResult> = {
   onStale?: (outcome: StaleOutcome) => void
   // Called with any refusal before anything is reported. Returning true means the caller handled
   // it - a 401 that starts reauthentication, say - and `submit` resolves to `false` with nothing
-  // reported. Replaces the hook's own.
-  onRefusal?: (result: R) => boolean | void
+  // reported. Beside the result, the envelope's reading of it: `codes`. Replaces the hook's own.
+  onRefusal?: (result: R, refusal: Refusal) => boolean | void
 }
 
 // The implementation signature, for a caller inside this module holding the options as the union.
@@ -743,7 +752,13 @@ function outcomeOf(result: APIResult): SubmitOutcome {
  */
 export function useAPISubmit(
   reporter: Reporter,
-  { envelope = drfEnvelope, throttled = throttledInEnglish, stale = staleInEnglish, onRefusal }: SubmitHooksOptions = {}
+  {
+    envelope = drfEnvelope,
+    throttled = throttledInEnglish,
+    stale = staleInEnglish,
+    conflictOf = readConflict,
+    onRefusal,
+  }: SubmitHooksOptions = {}
 ) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   // State answers too late to guard with: it changes on the next commit, not on this call.
@@ -805,7 +820,8 @@ export function useAPISubmit(
       return true
     }
 
-    if ((options.onRefusal ?? onRefusal)?.(result)) return false
+    const refused = options.onRefusal ?? onRefusal
+    if (refused?.(result, { codes: envelope.codesOf?.(result.error) })) return false
 
     const status = result.response?.status
     // Ahead of the envelope: DRF's throttle sentence is English and can't be translated, and
@@ -818,8 +834,7 @@ export function useAPISubmit(
     // Also ahead of the envelope: a 412's `detail` is English, and its body is a version, not errors.
     if (isPreconditionFailed(result.response)) {
       reporter.error((options.stale ?? stale)())
-      const current = (result.error as { current?: unknown } | null | undefined)?.current
-      options.onStale?.({ current, etag: tokenOf(current, result.response) })
+      options.onStale?.(conflictOf(result.error, result.response))
       return false
     }
 
