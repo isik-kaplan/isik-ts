@@ -145,6 +145,17 @@ describe('useAPISubmit', () => {
       expect(report.error).not.toHaveBeenCalled()
     })
 
+    // isik's 400: every message as DRF's full detail, `{message, code}`.
+    it("puts a 400's full-detail messages into the form as plain messages", async () => {
+      const setFormErrors = vi.fn()
+      const body = { name: [{ message: 'Taken.', code: 'unique' }] }
+      const { report } = await submitWith(refusal(400, body), { failure: 'Nope.', setFormErrors })
+      expect(setFormErrors).toHaveBeenCalledExactlyOnceWith({ name: ['Taken.'] })
+      expect(report.error).not.toHaveBeenCalled()
+      const { report: line } = await submitWith(refusal(400, body), { failure: 'Nope.' })
+      expect(line.error).toHaveBeenCalledExactlyOnceWith('Taken.')
+    })
+
     it('reports every message of a 400 as one line when there is no form to put them in', async () => {
       const { report } = await submitWith(refusal(400, { non_field_errors: ['Clash.'], name: ['Taken.'] }), {
         failure: 'Nope.',

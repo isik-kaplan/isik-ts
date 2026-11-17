@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { detailOf, messagesOf, toFormErrors } from '../../src/drf'
+import { codesOf, detailOf, messagesOf, toFormErrors } from '../../src/drf'
 
 describe('toFormErrors', () => {
   it('reads the shape a DRF 400 actually sends', () => {
@@ -129,6 +129,76 @@ describe('toFormErrors', () => {
 
   it('keeps an empty list, since it is vacuously a list of messages', () => {
     expect(toFormErrors({ name: [] })).toEqual({ name: [] })
+  })
+})
+
+// isik renders a 400 through DRF's get_full_details(): every message as `{message, code}`.
+describe('the full-details shape', () => {
+  const body = {
+    kinds: [{ kind: [{ message: "parcel_routed isn't sent to webhooks.", code: 'kind_not_sent_on_webhook' }] }],
+    name: [
+      { message: 'Too short.', code: 'min_length' },
+      { message: 'Taken.', code: 'unique' },
+    ],
+    non_field_errors: [{ message: 'Pick one.', code: 'invalid' }],
+  }
+
+  it('reads the messages as the plain shape gives them', () => {
+    expect(toFormErrors(body)).toEqual({
+      'kinds.0.kind': ["parcel_routed isn't sent to webhooks."],
+      name: ['Too short.', 'Taken.'],
+      non_field_errors: ['Pick one.'],
+    })
+  })
+
+  it('reads the codes under the same keys, in the same order', () => {
+    expect(codesOf(body)).toEqual({
+      'kinds.0.kind': ['kind_not_sent_on_webhook'],
+      name: ['min_length', 'unique'],
+      non_field_errors: ['invalid'],
+    })
+  })
+
+  // A ValidationError raised with a dict of strings gives a lone detail per field, not a list.
+  it('wraps a lone detail at the top level, and skips one below it as it does a bare string', () => {
+    expect(toFormErrors({ scopes: { message: 'Not approved.', code: 'invalid' } })).toEqual({
+      scopes: ['Not approved.'],
+    })
+    expect(codesOf({ scopes: { message: 'Not approved.', code: 'invalid' } })).toEqual({ scopes: ['invalid'] })
+    expect(toFormErrors({ a: { b: { message: 'Bare.', code: 'x' } } })).toBeUndefined()
+  })
+
+  it('reads a list mixing both kinds of message, with a code only where one came', () => {
+    const mixed = { name: ['Plain.', { message: 'Full.', code: 'full' }] }
+    expect(toFormErrors(mixed)).toEqual({ name: ['Plain.', 'Full.'] })
+    expect(codesOf(mixed)).toEqual({ name: ['full'] })
+  })
+
+  it('has no codes for a body of bare strings', () => {
+    expect(codesOf({ name: ['Taken.'], email: 'Invalid.' })).toBeUndefined()
+    expect(codesOf({ name: [] })).toEqual({ name: [] })
+  })
+
+  // Exactly `message` and `code`, both strings: allauth's entries add a `param`, and anything else is
+  // not a message to show.
+  it('takes only an exact detail for a message', () => {
+    expect(toFormErrors({ errors: [{ message: 'Taken.', code: 'email_taken', param: 'email' }] })).toBeUndefined()
+    expect(toFormErrors({ name: [{ message: 'No code.' }] })).toBeUndefined()
+    expect(toFormErrors({ name: [{ message: 'Bad code.', code: 5 }] })).toBeUndefined()
+    expect(toFormErrors({ name: [{ message: 5, code: 'x' }] })).toBeUndefined()
+    expect(toFormErrors({ name: { message: 5, code: 'x' } })).toBeUndefined()
+    expect(codesOf({ errors: [{ message: 'Taken.', code: 'email_taken', param: 'email' }] })).toBeUndefined()
+  })
+
+  it('keeps the sentence shape out, codes and all', () => {
+    expect(codesOf({ detail: 'Not found.', code: 'not_found' })).toBeUndefined()
+    expect(codesOf(null)).toBeUndefined()
+  })
+
+  it('keeps a field named __proto__ as a field', () => {
+    const errors = toFormErrors(JSON.parse('{"__proto__": [{"message": "M.", "code": "c"}]}'))
+    expect(Object.getPrototypeOf(errors)).toBe(Object.prototype)
+    expect(Object.entries(errors as object)).toEqual([['__proto__', ['M.']]])
   })
 })
 

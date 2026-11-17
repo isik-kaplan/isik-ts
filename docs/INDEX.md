@@ -51,7 +51,7 @@ Framework-agnostic, no peer dependencies beyond `date-fns`.
 
 ## Django REST framework (`@isikk/core/drf`)
 
-- [drf.md](drf.md) - `toFormErrors`, `detailOf`, `messagesOf`: readers for DRF's two error shapes
+- [drf.md](drf.md) - `toFormErrors`, `codesOf`, `detailOf`, `messagesOf`: readers for DRF's two error shapes, plain or full-detail
   (peer: none, pure functions)
 
 ## django-allauth (`@isikk/core/allauth`)

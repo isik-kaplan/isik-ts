@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `@isikk/core/drf` reads a 400's messages in DRF's `get_full_details()` shape, each one
+  `{message, code}`, which isik 0.57.0 sends. `toFormErrors` and so the submit hooks give the same
+  strings as from the plain shape, and the new `codesOf(body)` gives each field's codes under the
+  same keys (`FormErrorCodes`), for a page to branch on. Before this, those messages were dropped
+  and the hooks reported the generic `failure`.
+
 ## [0.25.0] - 2026-11-15
 
 ### Added
